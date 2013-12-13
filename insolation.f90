@@ -7,18 +7,137 @@ module insolation
 
     integer,  parameter :: dp  = kind(1.0d0)
 
-    double precision, parameter :: pi = 2.d0*acos(0.d0)
+    real (dp), parameter :: pi = 2.d0*acos(0.d0)
 
     integer, parameter                   :: n_orbit = 6001 
-    double precision, dimension(n_orbit) :: ECCM, PERM, XOBM 
-    double precision                     :: ECCP, XOBP, PERP 
+    real (dp), dimension(n_orbit) :: ECCM, PERM, XOBM 
+    real (dp)                     :: ECCP, XOBP, PERP 
+
+    ! Vector for generic insol calculations at predefined latitudes (-90:90)
+    integer, parameter          :: NLAT0 = 91
+    real (dp), dimension(NLAT0) :: LATS0, INSOL0
+
+    integer :: init_sinsol = 0 
 
     private
-    public :: INI_SINSOL 
+    public :: calc_insol_daily 
 
 contains
 
-      ! ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    function calc_insol_daily(day,lats,time_bp,S0,day_year) result(insol)
+        ! Given day of year, latitudes and time before present (1950),
+        ! Calculate the daily insolation values at each latitude 
+
+        implicit none 
+
+        integer   :: day
+        real (dp) :: lats(:) 
+        real (dp) :: time_bp
+        real (dp) :: insol(size(lats))
+
+        integer, parameter :: nh = 24 
+
+        real (dp) :: ECC, XOBCH, TPERI, ZAVEXPE
+        real (dp) :: PZEN3, PRAE, PCLOCK, PYTIME 
+        real (dp) :: PDISSE(nh), PZEN1(nh), PZEN2(nh)
+
+        integer :: j, h 
+
+        real (dp), optional :: S0
+        real (dp)           :: S0_value 
+
+        integer, optional   :: day_year
+        integer             :: day_max 
+
+        ! If necessary, initialize input data
+        if ( init_sinsol .eq. 0 ) then
+            call INI_SINSOL("input")
+            init_sinsol = 1
+        end if
+        
+        ! Define the solar constant
+        S0 = 1365.0_dp
+        if (present(S0)) S0_value = S0  
+
+        ! Define year length in days 
+        day_max = 360
+        if (present(day_year)) day_max = day_year
+
+
+        ! Call Berger subroutine to calculate 
+        ! orbital parameters for current year 
+        call BERGOR(time_bp,ECC,XOBCH,TPERI,ZAVEXPE)
+
+        ! Get hourly zenith angle values for input into daily insol function
+        do h = 1, nh
+            call ORBIT(ECC,XOBCH,TPERI,ZAVEXPE, &
+                       PCLOCK,PYTIME,PDISSE(h),PZEN1(h),PZEN2(h),PZEN3,PRAE)
+        end do 
+        
+        ! First calculate daily insolation at predefined latitude values
+        do j = 1, NLAT0
+            INSOL0(j) = calc_insol_daily_internal(day,LATS0(j),time_bp, &
+                                         PDISSE,PZEN1,PZEN2,S0_value,day_max)
+        end do 
+
+        ! Use spline interpolation to get insolation at desired latitudes
+        insol = interp_spline(LATS0,INSOL0,lats)
+
+        return 
+
+    end function calc_insol_daily
+
+    function calc_insol_daily_internal(day,lat,time_bp,PDISSE,PZEN1,PZEN2,S0,day_year) &
+                           result(solarm)
+        ! Given day of year, latitude and time before present (1950),
+        ! Calculate the daily insolation value 
+
+        implicit none 
+
+        integer   :: day, h, nh   
+        real (dp) :: lat, time_bp 
+        real (dp) :: PDISSE(:), PZEN1(:), PZEN2(:)
+        real (dp) :: PCLOCK, PYTIME
+        real (dp) :: solarm, coszm, cosp, cosn, S 
+
+        real (dp) :: S0
+        integer   :: day_year
+        
+        ! How many hours in the day?
+        nh = size(PDISSE)
+
+        ! Daily insolation is calculated by hourly integration for each day
+        PYTIME = day*2.0_dp*pi/dble(day_year)
+        solarm = 0.0_dp
+        coszm  = 0.0_dp 
+
+        do h = 1, nh
+
+            PCLOCK=h*2.0_dp*pi/dble(nh)  
+
+            
+            cosp = PZEN1(h)*dsin(lat) + PZEN2(h)*dcos(lat)
+            cosn = max(cosp,0.0_dp)
+
+            S = S0*cosn*PDISSE(h)
+            solarm = solarm + S
+            coszm  = coszm + S*cosn
+
+        end do
+
+        ! Get daily average insolation and zenith angle 
+        solarm = solarm/24.0_dp
+        if (solarm .gt. 0.0_dp) then
+            coszm = coszm/(solarm*24.0_dp)
+        else
+            coszm = 0.0_dp 
+        endif
+
+        return 
+
+    end function calc_insol_daily_internal
+
+  ! ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
   ! Subroutine :  s i n s o l 2 d
   ! Purpose    :  Same as climber module sinsol, except it is
   !               based on a 2d grid 
@@ -31,125 +150,129 @@ contains
   !  SOLARM2D  - daily solar radiation at the top of the atmosphere
   !  COSZM2D   - daily averaged solar zenith angle
   ! ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-  subroutine sinsol2d(solarm2d,lats,btime0)
+!   subroutine sinsol2d(solarm2d,lats,btime0,S0)
 
-    implicit none
+!     implicit none
     
-    integer, parameter :: nx = nxe, ny= nye, nl = 50
-    real (8) :: lats(ny,nx)
-    real (8) :: lats0(nl), solarm(nk,nl), coszm(nk,nl)
-    real (8) :: solarm2d(nk,ny,nx), coszm2d(nk,ny,nx)
-    real (8) :: btime0
+!     integer, parameter :: nx = nxe, ny= nye, nl = 50
+!     real (dp) :: lats(ny,nx)
+!     real (dp) :: lats0(nl), solarm(nk,nl), coszm(nk,nl)
+!     real (dp) :: solarm2d(nk,ny,nx), coszm2d(nk,ny,nx)
+!     real (dp) :: btime0
     
-    integer :: i, j, k, h, jj1, jj0
-    real (8) :: s, cosn, cosp, fi
-    
-    real (4) :: BTIME, ECC, XOBCH, TPERI, ZAVEXPE
-    real (4) :: PCLOCK, PYTIME, PDISSE, PZEN1, PZEN2, PZEN3, PRAE
+!     ! Later this should be chooseable parameter!
+!     real (dp), optional :: S0
+!     real (dp)           :: S0_value 
 
-    ! If incoming time is in calendar years, shift it for input to 
-    ! sinsol, otherwise leave it as it is
-    BTIME = btime0
-    if (timetype .eq. 1) BTIME = btime0 - 1950.d0
+!     integer :: i, j, k, h, jj1, jj0
+!     real (dp) :: s, cosn, cosp, fi
     
-    if ( init_sinsol .eq. 0 ) then
-      call INI_SINSOL("in_rembo/")
-      init_sinsol = 1
-    end if
+!     real (dp) :: BTIME, ECC, XOBCH, TPERI, ZAVEXPE
+!     real (dp) :: PCLOCK, PYTIME, PDISSE, PZEN1, PZEN2, PZEN3, PRAE
+
+!     ! Input time should be in years BP
+
+!     S0 = 1365.0_dp
+!     if (present(S0)) S0_value = S0  
+
+!     if ( init_sinsol .eq. 0 ) then
+!       call INI_SINSOL("input")
+!       init_sinsol = 1
+!     end if
     
-    ! Populate the lats lookup table    
-    lats0(1)  = floor(minval(lats))
-    lats0(nl) = ceiling(maxval(lats))
+!     ! Populate the lats lookup table    
+!     lats0(1)  = floor(minval(lats))
+!     lats0(nl) = ceiling(maxval(lats))
     
-    fi = ( lats0(nl) - lats0(1) ) / nl
+!     fi = ( lats0(nl) - lats0(1) ) / nl
     
-    do j = 2, nl-1
-      lats0(j) = lats0(j-1) + fi
-    end do
+!     do j = 2, nl-1
+!       lats0(j) = lats0(j-1) + fi
+!     end do
     
-!...1) Berger program calculates orbital parameters
-!   ===========================================   
-    call BERGOR(BTIME,ECC,XOBCH,TPERI,ZAVEXPE)
-!   =========================================== 
+! !...1) Berger program calculates orbital parameters
+! !   ===========================================   
+!     call BERGOR(BTIME,ECC,XOBCH,TPERI,ZAVEXPE)
+! !   =========================================== 
     
-!...2) Daily insolation is calculated by hourly integration for each day
+! !...2) Daily insolation is calculated by hourly integration for each day
      
-    ! Loop over interpolation matrix (lats0, solarm, coszm)
-    do j = 1, nl
+!     ! Loop over interpolation matrix (lats0, solarm, coszm)
+!     do j = 1, nl
 
-        fi=lats0(j)
-        do k = 1, nk
-          PYTIME=k*2.d0*pi/day_year
-          solarm(k,j)=0.d0
-          coszm(k,j) =0.d0        
-          do h = 1, 24
-            PCLOCK=h*2.d0*pi/24.d0   
-!     =================================================================          
-            call ORBIT(ECC,XOBCH,TPERI,ZAVEXPE, &
-                 PCLOCK,PYTIME,PDISSE,PZEN1,PZEN2,PZEN3,PRAE)
-!     =================================================================                    
-            cosp=PZEN1*dsin(fi)+PZEN2*dcos(fi)
-            cosn=max(cosp,0.0)
+!         fi=lats0(j)
+!         do k = 1, nk
+!           PYTIME=k*2.d0*pi/day_year
+!           solarm(k,j)=0.d0
+!           coszm(k,j) =0.d0        
+!           do h = 1, 24
+!             PCLOCK=h*2.d0*pi/24.d0   
+! !     =================================================================          
+!             call ORBIT(ECC,XOBCH,TPERI,ZAVEXPE, &
+!                  PCLOCK,PYTIME,PDISSE,PZEN1,PZEN2,PZEN3,PRAE)
+! !     =================================================================                    
+!             cosp=PZEN1*dsin(fi)+PZEN2*dcos(fi)
+!             cosn=max(cosp,0.0)
       
-            s=s0*cosn*PDISSE
-            solarm(k,j)=solarm(k,j)+s
-            coszm(k,j)=coszm(k,j)+s*cosn
-          enddo
-        enddo
+!             s=s0*cosn*PDISSE
+!             solarm(k,j)=solarm(k,j)+s
+!             coszm(k,j)=coszm(k,j)+s*cosn
+!           enddo
+!         enddo
 
       
-!...  Daily insolation and zenite angle
+! !...  Daily insolation and zenite angle
                                  
 
-        do k = 1, nk
-          solarm(k,j)=solarm(k,j)/24.d0
-          if (solarm(k,j) .gt. 0.) then
-            coszm(k,j)=coszm(k,j)/(solarm(k,j)*24.d0)
-          else
-            coszm(k,j)=0.d0
-          endif
-        enddo
+!         do k = 1, nk
+!           solarm(k,j)=solarm(k,j)/24.d0
+!           if (solarm(k,j) .gt. 0.) then
+!             coszm(k,j)=coszm(k,j)/(solarm(k,j)*24.d0)
+!           else
+!             coszm(k,j)=0.d0
+!           endif
+!         enddo
       
-    enddo ! end j-loop
+!     enddo ! end j-loop
     
-    ! Now interpolate to fill in the gaps
-    do i = 1, nx
-      do j = 1, ny
+!     ! Now interpolate to fill in the gaps
+!     do i = 1, nx
+!       do j = 1, ny
       
-        fi = lats(j,i)   ! Store current latitude
+!         fi = lats(j,i)   ! Store current latitude
         
-        do k = 1, nl
-          if ( lats0(k) .gt. fi ) then
-            jj0 = k-1; exit
-          end if
-        end do
+!         do k = 1, nl
+!           if ( lats0(k) .gt. fi ) then
+!             jj0 = k-1; exit
+!           end if
+!         end do
         
-        do k = jj0, nl
-          if ( lats0(k) .ge. fi ) then
-            jj1 = k; exit
-          end if
-        end do
+!         do k = jj0, nl
+!           if ( lats0(k) .ge. fi ) then
+!             jj1 = k; exit
+!           end if
+!         end do
         
-        do k = 1, nk
-          call interp1(fi, solarm2d(k,j,i), lats0(jj0), solarm(k,jj0), lats0(jj1), solarm(k,jj1))
-          if ( solarm2d(k,j,i) .lt. 1000.d0 .and. solarm2d(k,j,i) .ge. 0.d0 ) then
+!         do k = 1, nk
+!           call interp1(fi, solarm2d(k,j,i), lats0(jj0), solarm(k,jj0), lats0(jj1), solarm(k,jj1))
+!           if ( solarm2d(k,j,i) .lt. 1000.d0 .and. solarm2d(k,j,i) .ge. 0.d0 ) then
           
-          else
-            write(*,*) "solarm2d not in range",k,j,i
-            write(*,"(4f12.2)") lats0(jj0), solarm(k,jj0), lats0(jj1),solarm(k,jj1)
-            write(*,"(2f12.2)") fi, solarm2d(k,j,i)
-            stop
-          end if
+!           else
+!             write(*,*) "solarm2d not in range",k,j,i
+!             write(*,"(4f12.2)") lats0(jj0), solarm(k,jj0), lats0(jj1),solarm(k,jj1)
+!             write(*,"(2f12.2)") fi, solarm2d(k,j,i)
+!             stop
+!           end if
           
-        end do
+!         end do
         
-      end do
-    end do
+!       end do
+!     end do
 
-    return
+!     return
   
-  end subroutine sinsol2d 
-  
+!   end subroutine sinsol2d 
+
     subroutine INI_SINSOL(input_dir)  
     !********************************************************************  
     !
@@ -202,6 +325,12 @@ contains
         ! Convert from radians to degrees      
         XOBM = XOBM * 180.0/pi
         PERM = PERM * 180.0/pi
+
+        ! Also initialize the default latitude vector for insol calculations
+        ! (actual lat values are interpolated from these generic calcs)
+        do n = 1, NLAT0
+            LATS0(n) = -90.0_dp + (n-1)*180.0_dp/dble(NLAT0)
+        end do 
 
         return
     end subroutine INI_SINSOL
