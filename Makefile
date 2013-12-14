@@ -61,8 +61,10 @@ $(objdir)/coordinates.o: ../coord/coordinates.f90
 $(objdir)/interp1D.o: ../coord/interp1D.f90
 	$(FC) $(DFLAGS) $(FLAGS) -c -o $@ $<
 
-## Complete programs
 $(objdir)/insolation.o: insolation.f90
+	$(FC) $(DFLAGS) $(FLAGS) -c -o $@ $<
+
+$(objdir)/sinsol_orbit.o: sinsol_orbit.f
 	$(FC) $(DFLAGS) $(FLAGS) -c -o $@ $<
 
 ## Complete programs
@@ -73,6 +75,11 @@ insol: $(objdir)/ncio3.o $(objdir)/interp1D.o $(objdir)/insolation.o
 	@echo "    test_insol.x is ready."
 	@echo " "
 
+insol0: $(objdir)/ncio3.o $(objdir)/sinsol_orbit.o
+	$(FC) $(DFLAGS) $(FLAGS) -o test_insol.x $^ test_insol.f90 $(LFLAGS)
+	@echo " "
+	@echo "    test_insol.x is ready."
+	@echo " "
 
 clean:
 	rm -f test_insol.x $(objdir)/*.o $(objdir)/*.mod

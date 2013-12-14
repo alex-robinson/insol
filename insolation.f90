@@ -70,8 +70,9 @@ contains
         call BERGOR(time_bp,ECC,XOBCH,TPERI,ZAVEXPE)
 
         ! Get hourly zenith angle values for input into daily insol function
+        PYTIME = dble(day)*2.0_dp*pi/dble(day_max)
         do h = 1, nh
-            PYTIME = dble(day)*2.0_dp*pi/dble(day_max)
+            PCLOCK=dble(h)*2.0_dp*pi/dble(nh) 
             call ORBIT(ECC,XOBCH,TPERI,ZAVEXPE, &
                        PCLOCK,PYTIME,PDISSE(h),PZEN1(h),PZEN2(h),PZEN3,PRAE)
 
@@ -80,7 +81,7 @@ contains
         
         ! First calculate daily insolation at predefined latitude values
         do j = 1, NLAT0
-            INSOL0(j) = calc_insol_daily_internal(LATS0(j),time_bp, &
+            INSOL0(j) = calc_insol_daily_internal(LATS0(j), &
                                          PDISSE,PZEN1,PZEN2,S0_value)
         end do 
 
@@ -92,18 +93,18 @@ contains
 
     end function calc_insol_daily
 
-    function calc_insol_daily_internal(lat,time_bp,PDISSE,PZEN1,PZEN2,S0) result(solarm)
-        ! Given day of year, latitude and time before present (1950),
+    function calc_insol_daily_internal(lat,PDISSE,PZEN1,PZEN2,S0) result(solarm)
+        ! Given latitude and sun hourly angle,
         ! Calculate the daily insolation value 
 
         implicit none 
 
         integer   :: day, h, nh   
-        real (dp) :: lat, time_bp, S0  
-        real (dp) :: PDISSE(:), PZEN1(:), PZEN2(:)
-        real (dp) :: PCLOCK
-        real (dp) :: solarm, coszm, cosp, cosn, S 
-        
+        real (dp), intent(IN) :: lat, S0  
+        real (dp), intent(IN) :: PDISSE(:), PZEN1(:), PZEN2(:)
+        real (dp) :: coszm, cosp, cosn, S 
+        real (dp) :: solarm 
+
         ! How many hours in the day?
         nh = size(PDISSE)
 
@@ -111,9 +112,7 @@ contains
         solarm = 0.0_dp
         coszm  = 0.0_dp 
 
-        do h = 1, nh
-
-            PCLOCK=dble(h)*2.0_dp*pi/dble(nh)  
+        do h = 1, nh 
 
             cosp = PZEN1(h)*dsin(lat*deg_to_rad) + PZEN2(h)*dcos(lat*deg_to_rad)
             cosn = max(cosp,0.0_dp)
