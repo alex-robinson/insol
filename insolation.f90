@@ -20,12 +20,16 @@ module insolation
 
     integer :: init_sinsol = 0 
 
+    interface calc_insol_day 
+        module procedure calc_insol_day_1D, calc_insol_day_2D 
+    end interface 
+
     private
-    public :: calc_insol_daily 
+    public :: calc_insol_day 
 
-contains
+contains 
 
-    function calc_insol_daily(day,lats,time_bp,S0,day_year) result(insol)
+    function calc_insol_day_1D(day,lats,time_bp,S0,day_year) result(insol)
         ! Given day of year, latitudes and time before present (1950),
         ! Calculate the daily insolation values at each latitude 
 
@@ -81,19 +85,42 @@ contains
         
         ! First calculate daily insolation at predefined latitude values
         do j = 1, NLAT0
-            INSOL0(j) = calc_insol_daily_internal(LATS0(j), &
+            INSOL0(j) = calc_insol_day_internal(LATS0(j), &
                                          PDISSE,PZEN1,PZEN2,S0_value)
         end do 
 
         ! Use spline interpolation to get insolation at desired latitudes
-        !insol = interp_spline(LATS0,INSOL0,lats)
-        insol = INSOL0 
+        insol = interp_spline(LATS0,INSOL0,lats)
+        !insol = INSOL0 
 
         return 
 
-    end function calc_insol_daily
+    end function calc_insol_day_1D
 
-    function calc_insol_daily_internal(lat,PDISSE,PZEN1,PZEN2,S0) result(solarm)
+    function calc_insol_day_2D(day,lats,time_bp,S0,day_year) result(insol2D)
+
+        integer   :: day
+        real (dp) :: lats(:,:) 
+        real (dp) :: time_bp
+        real (dp) :: insol2D(size(lats,1),size(lats,2))
+        real (dp), allocatable :: lats1D(:), insol1D(:)
+        integer   :: n 
+
+        real (dp), optional :: S0
+        integer, optional   :: day_year
+
+        n = size(lats,1)*size(lats,2)
+        allocate(lats1D(n),insol1D(n))
+
+        lats1D = reshape(lats,[n])
+        insol1D = calc_insol_day_1D(day,lats1D,time_bp,S0,day_year)
+        insol2D = reshape(insol1D,[size(lats,1),size(lats,2)])
+
+        return 
+
+    end function calc_insol_day_2D
+
+    function calc_insol_day_internal(lat,PDISSE,PZEN1,PZEN2,S0) result(solarm)
         ! Given latitude and sun hourly angle,
         ! Calculate the daily insolation value 
 
@@ -133,7 +160,7 @@ contains
 
         return 
 
-    end function calc_insol_daily_internal
+    end function calc_insol_day_internal
 
     subroutine INI_SINSOL(input_dir)  
     !********************************************************************  
