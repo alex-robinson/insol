@@ -15,7 +15,8 @@ module insolation
     real (dp)                     :: ECCP, XOBP, PERP 
 
     ! Vector for generic insol calculations at predefined latitudes (-90:90)
-    integer, parameter          :: NLAT0 = 91
+    ! 91 ~ 2deg, 61 ~ 3deg, 31 ~ 6deg
+    integer, parameter          :: NLAT0 = 61
     real (dp), dimension(NLAT0) :: LATS0, INSOL0
 
     integer :: init_sinsol = 0 
@@ -29,7 +30,7 @@ module insolation
 
 contains 
 
-    function calc_insol_day_1D(day,lats,time_bp,S0,day_year) result(insol)
+    function calc_insol_day_1D(day,lats,time_bp,S0,day_year,fldr) result(insol)
         ! Given day of year, latitudes and time before present (1950),
         ! Calculate the daily insolation values at each latitude 
 
@@ -54,9 +55,15 @@ contains
         integer, optional   :: day_year
         integer             :: day_max 
 
+        character(len=*), optional :: fldr 
+
         ! If necessary, initialize input data
         if ( init_sinsol .eq. 0 ) then
-            call INI_SINSOL("input")
+            if (present(fldr)) then
+                call INI_SINSOL(fldr)
+            else
+                call INI_SINSOL("input")
+            end if 
             init_sinsol = 1
         end if
         
@@ -97,7 +104,9 @@ contains
 
     end function calc_insol_day_1D
 
-    function calc_insol_day_2D(day,lats,time_bp,S0,day_year) result(insol2D)
+    function calc_insol_day_2D(day,lats,time_bp,S0,day_year,fldr) result(insol2D)
+
+        implicit none 
 
         integer   :: day
         real (dp) :: lats(:,:) 
@@ -107,13 +116,14 @@ contains
         integer   :: n 
 
         real (dp), optional :: S0
-        integer, optional   :: day_year
+        integer,   optional :: day_year
+        character(len=*), optional :: fldr 
 
         n = size(lats,1)*size(lats,2)
         allocate(lats1D(n),insol1D(n))
 
         lats1D = reshape(lats,[n])
-        insol1D = calc_insol_day_1D(day,lats1D,time_bp,S0,day_year)
+        insol1D = calc_insol_day_1D(day,lats1D,time_bp,S0,day_year,fldr)
         insol2D = reshape(insol1D,[size(lats,1),size(lats,2)])
 
         return 
@@ -129,7 +139,7 @@ contains
         integer   :: day, h, nh   
         real (dp), intent(IN) :: lat, S0  
         real (dp), intent(IN) :: PDISSE(:), PZEN1(:), PZEN2(:)
-        real (dp) :: coszm, cosp, cosn, S 
+        real (dp) :: coszm, cosp, cosn, S, solarh(size(PDISSE))
         real (dp) :: solarm 
 
         ! How many hours in the day?
@@ -150,6 +160,9 @@ contains
 
         end do
 
+!         solarh = calc_insol_hour(lat,S0,PZEN1,PZEN2,PDISSE)
+!         solarm = sum(solarh)/24.0_dp
+
         ! Get daily average insolation and zenith angle 
         solarm = solarm/24.0_dp
         if (solarm .gt. 0.0_dp) then
@@ -161,6 +174,22 @@ contains
         return 
 
     end function calc_insol_day_internal
+
+!     elemental function calc_insol_hour(lat,S0,PZEN1,PZEN2,PDISSE) result(S)
+
+!         implicit none 
+
+!         real (dp), intent(IN) :: lat, S0, PZEN1, PZEN2, PDISSE
+!         real (dp) :: S
+!         real (dp) :: cosp, cosn 
+
+!         cosp = PZEN1*dsin(lat*deg_to_rad) + PZEN2*dcos(lat*deg_to_rad)
+!         cosn = max(cosp,0.0_dp)
+!         S = S0*cosn*PDISSE
+
+!         return 
+
+!     end function calc_insol_hour
 
     subroutine INI_SINSOL(input_dir)  
     !********************************************************************  

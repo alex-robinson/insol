@@ -28,7 +28,7 @@ program test_insol
     ! Calculate insolation at these latitudes
     do day = 1, nday 
         days(day) = day 
-        insol(:,day) = calc_insol_day(day,lats,0.d0)
+        call calc_insol_day(insol(:,day),day,lats,0.d0)
     end do 
 
     ! Load 2D latitudes to calculate 2D insolation
@@ -45,11 +45,11 @@ program test_insol
 
     do day = 1, nday 
         days(day) = day 
-        insol2D = calc_insol_day(day,lats2D,0.d0)
+        call calc_insol_day(insol2D,day,lats2D,0.d0)
         call nc_write(filename,insol2D,"insol2D",dim1="xc",dim2="yc",dim3="day", &
                       start=[1,1,day],count=[37,61,1])
     end do
-    
+
 contains 
 
   ! ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
