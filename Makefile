@@ -52,7 +52,7 @@ endif
 # LFLAGS		 = -L/home/robinson/apps/netcdf/netcdf/lib -lnetcdf
 
 ## Individual libraries or modules ##
-$(objdir)/ncio3.o: ../ncio/ncio3.f90
+$(objdir)/ncio.o: ../ncio/ncio.f90
 	$(FC) $(DFLAGS) $(FLAGS) -c -o $@ $<
 
 $(objdir)/coordinates.o: ../coord/coordinates.f90
@@ -69,13 +69,13 @@ $(objdir)/sinsol_orbit.o: sinsol_orbit.f
 
 ## Complete programs
 
-insol: $(objdir)/ncio3.o $(objdir)/interp1D.o $(objdir)/insolation.o
+insol: $(objdir)/ncio.o $(objdir)/interp1D.o $(objdir)/insolation.o
 	$(FC) $(DFLAGS) $(FLAGS) -o test_insol.x $^ test_insol.f90 $(LFLAGS)
 	@echo " "
 	@echo "    test_insol.x is ready."
 	@echo " "
 
-insol0: $(objdir)/ncio3.o $(objdir)/sinsol_orbit.o
+insol0: $(objdir)/ncio.o $(objdir)/sinsol_orbit.o
 	$(FC) $(DFLAGS) $(FLAGS) -o test_insol.x $^ test_insol.f90 $(LFLAGS)
 	@echo " "
 	@echo "    test_insol.x is ready."
