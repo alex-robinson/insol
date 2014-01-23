@@ -50,7 +50,7 @@ program test_insol
                       start=[1,1,day],count=[37,61,1])
     end do
 
-contains 
+!contains 
 
   ! ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
   ! Subroutine :  s i n s o l 2 d
