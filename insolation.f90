@@ -105,7 +105,9 @@ contains
     end function calc_insol_day_1D
 
     function calc_insol_day_2D(day,lats,time_bp,S0,day_year,fldr) result(insol2D)
-
+        ! Wrapper function to calculate 2D array of insolation values
+        ! for a given day, given a 2D array of latitude values
+        
         implicit none 
 
         integer   :: day
@@ -133,6 +135,7 @@ contains
     function calc_insol_day_internal(lat,PDISSE,PZEN1,PZEN2,S0) result(solarm)
         ! Given latitude and sun hourly angle,
         ! Calculate the daily insolation value 
+        ! Adapted from CLIMBER2.4 subroutine 'sinsol' by A. Ganopolski
 
         implicit none 
 
@@ -175,32 +178,12 @@ contains
 
     end function calc_insol_day_internal
 
-!     elemental function calc_insol_hour(lat,S0,PZEN1,PZEN2,PDISSE) result(S)
-
-!         implicit none 
-
-!         real (dp), intent(IN) :: lat, S0, PZEN1, PZEN2, PDISSE
-!         real (dp) :: S
-!         real (dp) :: cosp, cosn 
-
-!         cosp = PZEN1*dsin(lat*deg_to_rad) + PZEN2*dcos(lat*deg_to_rad)
-!         cosn = max(cosp,0.0_dp)
-!         S = S0*cosn*PDISSE
-
-!         return 
-
-!     end function calc_insol_hour
 
     subroutine INI_SINSOL(input_dir)  
-    !********************************************************************  
+    ! Initialization of global insolation variables
     !
-    !  Purpose:  Calculation of solar insolation and averaged zenite
-    !            angle for different times
-    ! 
-    !  By: A.Ganopolski 
-    !  Last modification: 28.04.2011 
-    !                                                CLIMBER-2.4
     ! Global variables: ECCM(6001),PERM(6001),XOBM(6001)
+    
         real :: nnf
         character (len=*)   :: input_dir
         character (len=512) :: filen, filep
@@ -445,6 +428,7 @@ contains
     !
     !   S. J. Lorenz   University of Bremen    08-03-94.
     !     -- last change:  31-07-96
+    !     -- Converted to FORTRAN90 by A. Robinson, 12/2013
     !
     !   PURPOSE.
     !   --------
