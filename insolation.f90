@@ -381,8 +381,8 @@ contains
 !       USE FIRST DERIVATIVE (NEWTON) TO CALCULATE SOLUTION OF
 !       EQUATION OF ECCENTRI!   ANOMALY *E*
 !
-        time  = ZYTIME-2*pi*TPERI/TTROP 
-        eold  = time/(1.-ecc)
+        time  = ZYTIME-2.0_dp*pi*TPERI/TTROP 
+        eold  = time/(1.0_dp-ecc)
         enew  = time
         eps   = 1.e-6_dp 
         niter = 0
@@ -411,21 +411,21 @@ contains
 !       are solved. Day of vernal equinox is fixed for a 360 day year on the
 !       21. Maerz noon, with start of year at 01/01/00 GMT (s.a.).
 
-        zsqecc=sqrt((1+ecc)/(1-ecc))
-        ztgean=tan(E/2)
+        zsqecc=sqrt((1_dp+ecc)/(1_dp-ecc))
+        ztgean=tan(E/2_dp)
 
 !       znu: true anomaly (actual angle of Earth's position from perihelion)
 !       zlambda: true longitude of the Earth (actual angle from vernal equinox)
 
-        znu=2.*atan(zsqecc*ztgean)
+        znu=2.0_dp*atan(zsqecc*ztgean)
         zlambda=znu+zavexpe
-        xobche=xobch/180.*pi
+        xobche=xobch/180.0_dp*pi
         zsinde=sin(xobche)*sin(zlambda)
         zdecli=asin(zsinde)
 
         ZZEN1=sin(zdecli)
-        ZZEN2=cos(zdecli)*cos(zdecli)
-        ZZEN3=cos(zdecli)*sin(zdecli)
+        ZZEN2=cos(zdecli)*cos(zclock)
+        ZZEN3=cos(zdecli)*sin(zclock)
 
         ! 3. RETURN
         !    ------

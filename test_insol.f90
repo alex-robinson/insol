@@ -25,6 +25,9 @@ program test_insol
         lats(i) = -90.d0 + (i-1)*180.d0/dble(nlat)
     end do 
 
+    !! TEST !! 
+    insol(:,180) = calc_insol_day(180,lats,0.d0)
+
     ! Calculate insolation at these latitudes
     do day = 1, nday 
         days(day) = day 
