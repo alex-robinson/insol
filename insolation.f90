@@ -11,8 +11,14 @@ module insolation
     real (dp), parameter :: deg_to_rad = pi/180.0_dp
         
     integer, parameter                   :: n_orbit = 6001 
-    real (dp), dimension(n_orbit) :: ECCM, PERM, XOBM 
+    real (dp), dimension(n_orbit) :: TIMEM, ECCM, PERM, XOBM 
     real (dp)                     :: ECCP, XOBP, PERP 
+
+!     type orbit_class
+!         real (dp), dimension(:), allocatable :: time, eccm, perm, xobm 
+!     end type 
+
+!     type(orbit_class) :: OPAR 
 
     ! Vector for generic insol calculations at predefined latitudes (-90:90)
     ! 91 ~ 2deg, 61 ~ 3deg, 31 ~ 6deg
@@ -30,9 +36,39 @@ module insolation
 
 contains 
 
+    function calc_insol_day_2D(day,lats,time_bp,S0,day_year,fldr) result(insol2D)
+        ! Wrapper function to calculate 2D array of insolation values
+        ! for a given day, given a 2D array of latitude values
+        ! time_bp = years before present (present==1950)
+
+        implicit none 
+
+        integer   :: day
+        real (dp) :: lats(:,:) 
+        real (dp) :: time_bp
+        real (dp) :: insol2D(size(lats,1),size(lats,2))
+        real (dp), allocatable :: lats1D(:), insol1D(:)
+        integer   :: n 
+
+        real (dp), optional :: S0
+        integer,   optional :: day_year
+        character(len=*), optional :: fldr 
+
+        n = size(lats,1)*size(lats,2)
+        allocate(lats1D(n),insol1D(n))
+
+        lats1D = reshape(lats,[n])
+        insol1D = calc_insol_day_1D(day,lats1D,time_bp,S0,day_year,fldr)
+        insol2D = reshape(insol1D,[size(lats,1),size(lats,2)])
+
+        return 
+
+    end function calc_insol_day_2D
+
     function calc_insol_day_1D(day,lats,time_bp,S0,day_year,fldr) result(insol)
-        ! Given day of year, latitudes and time before present (1950),
+        ! Given day of year, latitudes and time before present,
         ! Calculate the daily insolation values at each latitude 
+        ! time_bp = years before present (present==1950)
 
         implicit none 
 
@@ -75,25 +111,21 @@ contains
         day_max = 360
         if (present(day_year)) day_max = day_year
 
-
         ! Call Berger subroutine to calculate 
         ! orbital parameters for current year 
         call BERGOR(time_bp,ECC,XOBCH,TPERI,ZAVEXPE)
 
         ! Get hourly zenith angle values for input into daily insol function
-        PYTIME = dble(day)*2.0_dp*pi/dble(day_max)
+        PYTIME = dble(day)/dble(day_max)*2.0_dp*pi
         do h = 1, nh
-            PCLOCK=dble(h)*2.0_dp*pi/dble(nh) 
+            PCLOCK = dble(h)/dble(nh)*2.0_dp*pi
             call ORBIT(ECC,XOBCH,TPERI,ZAVEXPE, &
                        PCLOCK,PYTIME,PDISSE(h),PZEN1(h),PZEN2(h),PZEN3,PRAE)
-
-!             write(*,*) h, PDISSE(h), PZEN1(h), PZEN2(h)
         end do 
-        
+
         ! First calculate daily insolation at predefined latitude values
         do j = 1, NLAT0
-            INSOL0(j) = calc_insol_day_internal(LATS0(j), &
-                                         PDISSE,PZEN1,PZEN2,S0_value)
+            INSOL0(j) = calc_insol_day_internal(LATS0(j),PDISSE,PZEN1,PZEN2,S0_value)
         end do 
 
         ! Use spline interpolation to get insolation at desired latitudes
@@ -103,34 +135,6 @@ contains
         return 
 
     end function calc_insol_day_1D
-
-    function calc_insol_day_2D(day,lats,time_bp,S0,day_year,fldr) result(insol2D)
-        ! Wrapper function to calculate 2D array of insolation values
-        ! for a given day, given a 2D array of latitude values
-        
-        implicit none 
-
-        integer   :: day
-        real (dp) :: lats(:,:) 
-        real (dp) :: time_bp
-        real (dp) :: insol2D(size(lats,1),size(lats,2))
-        real (dp), allocatable :: lats1D(:), insol1D(:)
-        integer   :: n 
-
-        real (dp), optional :: S0
-        integer,   optional :: day_year
-        character(len=*), optional :: fldr 
-
-        n = size(lats,1)*size(lats,2)
-        allocate(lats1D(n),insol1D(n))
-
-        lats1D = reshape(lats,[n])
-        insol1D = calc_insol_day_1D(day,lats1D,time_bp,S0,day_year,fldr)
-        insol2D = reshape(insol1D,[size(lats,1),size(lats,2)])
-
-        return 
-
-    end function calc_insol_day_2D
 
     function calc_insol_day_internal(lat,PDISSE,PZEN1,PZEN2,S0) result(solarm)
         ! Given latitude and sun hourly angle,
@@ -142,8 +146,8 @@ contains
         integer   :: day, h, nh   
         real (dp), intent(IN) :: lat, S0  
         real (dp), intent(IN) :: PDISSE(:), PZEN1(:), PZEN2(:)
-        real (dp) :: coszm, cosp, cosn, S, solarh(size(PDISSE))
-        real (dp) :: solarm 
+        real (dp) :: latrad, coszm, cosp, cosn, S, solarh(size(PDISSE))
+        real (dp) :: solarm
 
         ! How many hours in the day?
         nh = size(PDISSE)
@@ -151,10 +155,11 @@ contains
         ! Daily insolation is calculated by hourly integration for each day
         solarm = 0.0_dp
         coszm  = 0.0_dp 
-
+        latrad = lat*deg_to_rad 
+        
         do h = 1, nh 
 
-            cosp = PZEN1(h)*dsin(lat*deg_to_rad) + PZEN2(h)*dcos(lat*deg_to_rad)
+            cosp = PZEN1(h)*dsin(latrad) + PZEN2(h)*dcos(latrad)
             cosn = max(cosp,0.0_dp)
 
             S = S0*cosn*PDISSE(h)
@@ -162,9 +167,6 @@ contains
             coszm  = coszm + S*cosn
 
         end do
-
-!         solarh = calc_insol_hour(lat,S0,PZEN1,PZEN2,PDISSE)
-!         solarm = sum(solarh)/24.0_dp
 
         ! Get daily average insolation and zenith angle 
         solarm = solarm/24.0_dp
@@ -177,7 +179,6 @@ contains
         return 
 
     end function calc_insol_day_internal
-
 
     subroutine INI_SINSOL(input_dir)  
     ! Initialization of global insolation variables
@@ -199,6 +200,9 @@ contains
 
         ! Load Laskar2004 input parameters instead of Berger   
         ! Note: year 0: n=5001 ; year -5000 ka: n=1; year 1000 ka: n=6001
+        ! Note: n / year =    1 / -5000 ka
+        !                  5001 /     0 ka
+        !                  6001 /  1000 ka 
 
         filen = trim(input_dir)//'/LA2004.INSOLN.5Ma.txt'
         filep = trim(input_dir)//'/LA2004.INSOLP.1Ma.txt'
@@ -208,7 +212,7 @@ contains
         open (1,file=trim(filen))
 
         do n=1,5001
-            read (1,*) nnf, ECCM(5001-n+1), XOBM(5001-n+1), PERM(5001-n+1)
+            read (1,*) TIMEM(5001-n+1), ECCM(5001-n+1), XOBM(5001-n+1), PERM(5001-n+1)
         enddo
 
         close (1)
@@ -218,7 +222,7 @@ contains
         open (1,file=trim(filep))
 
         do n=1,1001
-            read (1,*) nnf, ECCM(5000+n), XOBM(5000+n), PERM(5000+n)
+            read (1,*) TIMEM(5000+n), ECCM(5000+n), XOBM(5000+n), PERM(5000+n)
         enddo
 
         close (1)
@@ -268,17 +272,15 @@ contains
 !       INTERFACE.
 !       ----------
 !
-!            *ORBIT* IS CALLED FROM *PHYSC* AT THE FIRST LATITUDE ROW.
-!            THERE ARE SEVEN DUMMY ARGUMENTS: *PCLOCK* IS THE TIME OF THE
-!       DAY
-!                                             *PYTIME* IS THE TIME OF THE
-!       YEAR (BOTH IN RADIANS).
-!                                             *PDISSE* IS THE RATIO OF THE
-!       SOLAR CONSTANT TO ITS ANNUAL MEAN
-!                                             *PZEN1*, *PZEN2* AND *PZEN3*
-!       ARE ZENITHAL PARAMETERS.
-!                                             *PRAE* IS THE RATIO OF THE
-!       HEIGHT OF THE EQUIVALENT ATMOSPHERE TO THE RADIUS OF THE EARTH.
+!       *ORBIT* IS CALLED FROM *PHYSC* AT THE FIRST LATITUDE ROW.
+!       THERE ARE SEVEN DUMMY ARGUMENTS: 
+!       
+!       *PCLOCK* IS THE TIME OF THE DAY
+!       *PYTIME* IS THE TIME OF THE YEAR (BOTH IN RADIANS).
+!       *PDISSE* IS THE RATIO OF THE SOLAR CONSTANT TO ITS ANNUAL MEAN
+!       *PZEN1*, *PZEN2* AND *PZEN3* ARE ZENITHAL PARAMETERS.
+!       *PRAE* IS THE RATIO OF THE HEIGHT OF THE EQUIVALENT ATMOSPHERE 
+!       TO THE RADIUS OF THE EARTH.
 !
 !       METHOD.
 !       -------
@@ -329,12 +331,12 @@ contains
 !       1. PRELIMINARY SETTINGS
 !          --------------------
 
-        ZCLOCK=PCLOCK
-        ZYTIME=PYTIME
+        ZCLOCK = PCLOCK
+        ZYTIME = PYTIME
 
 !       TROPICAL YEAR
 
-        TTROP=360.0_dp 
+        TTROP = 360.0_dp 
 !
 !       DAY OF VERNAL EQUINOX: DEFINED ON 21. OF MARCH, 12.00 GMT
 !       (BEGIN OF YEAR: 01. OF JANUARY, 0.00 GMT: ZYTIME=0.0, THEREAFTER
@@ -365,10 +367,11 @@ contains
 !       EQUATION OF ECCENTRI!   ANOMALY *E*
 !
         time  = ZYTIME-2.0_dp*pi*TPERI/TTROP 
-        eold  = time/(1.0_dp-ecc)
+        eold  = time/(1.0_dp-ECC)
         enew  = time
         eps   = 1.e-6_dp 
         niter = 0
+        zeps  = eold - enew
 
         do while ( dabs(zeps) .gt. eps ) 
             zeps = eold - enew
@@ -381,11 +384,11 @@ contains
             niter = niter+1
             eold  = enew
             cose  = cos(enew)
-            enew  = (time+ecc*(sin(enew)-enew*cose))/(1.0_dp-ecc*cose)
+            enew  = (time+ECC*(sin(enew)-enew*cose))/(1.0_dp-ECC*cose)
         end do 
 
-        E=enew
-        ZDISSE=(1.0_dp/(1.0_dp-ECC*cos(E)))**2
+        E      = enew
+        ZDISSE = (1.0_dp/(1.0_dp-ECC*cos(E)))**2
 
 !       Change in the calculation of the declination.
 !       Used are not the formulas from Paltridge/Platt as in the ECHAM model
@@ -394,30 +397,30 @@ contains
 !       are solved. Day of vernal equinox is fixed for a 360 day year on the
 !       21. Maerz noon, with start of year at 01/01/00 GMT (s.a.).
 
-        zsqecc=sqrt((1_dp+ecc)/(1_dp-ecc))
-        ztgean=tan(E/2_dp)
+        zsqecc = sqrt((1_dp+ECC)/(1_dp-ECC))
+        ztgean = tan(E/2_dp)
 
 !       znu: true anomaly (actual angle of Earth's position from perihelion)
 !       zlambda: true longitude of the Earth (actual angle from vernal equinox)
 
-        znu=2.0_dp*atan(zsqecc*ztgean)
-        zlambda=znu+zavexpe
-        xobche=xobch/180.0_dp*pi
-        zsinde=sin(xobche)*sin(zlambda)
-        zdecli=asin(zsinde)
+        znu     = 2.0_dp*atan(zsqecc*ztgean)
+        zlambda = znu + zavexpe
+        xobche  = xobch/180.0_dp*pi
+        zsinde  = sin(xobche)*sin(zlambda)
+        zdecli  = asin(zsinde)
 
-        ZZEN1=sin(zdecli)
-        ZZEN2=cos(zdecli)*cos(zclock)
-        ZZEN3=cos(zdecli)*sin(zclock)
+        ZZEN1 = sin(ZDECLI)
+        ZZEN2 = cos(ZDECLI)*cos(ZCLOCK)
+        ZZEN3 = cos(ZDECLI)*sin(ZCLOCK)
 
         ! 3. RETURN
         !    ------
 
-        PDISSE=ZDISSE
-        PZEN1=ZZEN1
-        PZEN2=ZZEN2
-        PZEN3=ZZEN3
-        PRAE=ZRAE
+        PDISSE = ZDISSE
+        PZEN1  = ZZEN1
+        PZEN2  = ZZEN2
+        PZEN3  = ZZEN3
+        PRAE   = ZRAE
  
         return
 
@@ -491,7 +494,7 @@ contains
       
         return
 
-    end subroutine BERGOR 
+    end subroutine BERGOR
 
     subroutine ORBIT_PAR(T,PER,ECC,XOB)
     ! INPUT : T - Time in years (negative for the past, reference year 1950 a. D.)                
@@ -499,7 +502,7 @@ contains
     !           PER  - Longitude of Perihelion (measured from vernal equinox,
     !                  relative to observation from the earth, i.e. angle from
     !                  autumnal equinox to perihelion)
-    !           EC!    - Eccentricity
+    !           ECC  - Eccentricity
     !           XOB  - Obliquity
     !           T    - Attention! T (input) is multiplied by 1000.
     !
@@ -510,20 +513,26 @@ contains
         integer :: N1, N2  
         real (dp) :: TIME, ef, PERM1, PERM2 
 
-        N1=5001+T/1000.0_dp 
-        N2=MIN0(N1+1,6001)
+        ! Time in ka 
+        TIME=T*1d-3
 
-        TIME=T/1000
-        ef=int(TIME)-TIME
-        if (ef.eq.0.) ef=1.0_dp 
+        ! Indices bracketing current time
+        do N1 = 1, 6001
+            if (TIMEM(N1) .gt. TIME) exit 
+        end do 
+        N1 = N1 - 1
+        N2 = N1 + 1 
 
-        ECC=ef*ECCM(N1)+(1.0_dp-ef)*ECCM(N2)
-        XOB=ef*XOBM(N1)+(1.0_dp-ef)*XOBM(N2)
+        ! Get weighting of each index
+        ef = (TIME-TIMEM(N1)) / (TIMEM(N2)-TIMEM(N1))
+
+        ECC = (1.0_dp-ef)*ECCM(N1) + ef*ECCM(N2)
+        XOB = (1.0_dp-ef)*XOBM(N1) + ef*XOBM(N2)
 
         PERM1=PERM(N1)
         PERM2=PERM(N2)
         if (PERM2.lt.PERM1) PERM2=PERM2+360.0_dp
-        PER=ef*PERM1+(1.0_dp-ef)*PERM2
+        PER = (1.0_dp-ef)*PERM1 + ef*PERM2
         if (PER.gt.360.0_dp) PER=PER-360.0_dp
 
         ECCP=ECC
@@ -532,6 +541,6 @@ contains
 
         return
       
-      end subroutine ORBIT_PAR 
+    end subroutine ORBIT_PAR 
 
 end module 
