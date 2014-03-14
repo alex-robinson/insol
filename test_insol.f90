@@ -41,6 +41,7 @@ program test_insol
     call nc_write_dim(filename,"day",x=days)
     call nc_write_dim(filename,"xc",x=0,nx=37)
     call nc_write_dim(filename,"yc",x=0,nx=61)
+    call nc_write(filename,"lat2D",lats2D,dim1="xc",dim2="yc")
     call nc_write(filename,"insol",insol,dim1="lat",dim2="day")
 
     do day = 1, nday 
