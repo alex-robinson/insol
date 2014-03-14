@@ -1,7 +1,7 @@
 
 module insolation
 
-    use interp1D 
+!     use interp1D 
 
     implicit none 
 
@@ -22,7 +22,8 @@ module insolation
 
     type(orbit_class) :: OPAR 
 
-    interface calc_insol_day 
+    interface calc_insol_day
+        module procedure calc_insol_day_pt  
         module procedure calc_insol_day_1D, calc_insol_day_2D 
     end interface 
 
@@ -108,15 +109,18 @@ contains
                        PCLOCK,PYTIME,PDISSE(h),PZEN1(h),PZEN2(h),PZEN3(h),PRAE)
         end do 
 
-        ! First calculate daily insolation at predefined latitude values
-        do j = 1, OPAR%n_lat
-            OPAR%solarm(j) = calc_insol_day_internal(OPAR%lats(j),PDISSE,PZEN1,PZEN2,S0_value)
+!         ! Calculate daily insolation at predefined latitude values,
+!         ! then interpolate via spline to get insolation at desired latitudes
+!         do j = 1, OPAR%n_lat
+!             OPAR%solarm(j) = calc_insol_day_internal(OPAR%lats(j),PDISSE,PZEN1,PZEN2,S0_value)
+!         end do 
+!         insol = interp_spline(OPAR%lats,OPAR%solarm,lats)
+        
+        ! Calculate daily insolation at each latitude
+        do j = 1, size(lats)
+            insol(j) = calc_insol_day_internal(lats(j),PDISSE,PZEN1,PZEN2,S0_value)
         end do 
-
-        ! Use spline interpolation to get insolation at desired latitudes
-        insol = interp_spline(OPAR%lats,OPAR%solarm,lats)
-        !insol = INSOL0 
-
+         
         return 
 
     end function calc_insol_day_1D
