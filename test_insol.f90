@@ -19,7 +19,7 @@ program test_insol
     double precision :: insol_pt 
 
     ! Load 2D latitudes to calculate 2D insolation
-    filename = "../gridding/output/GRL-50KM_TOPO.nc"
+    filename = "../gridding/output/Greenland/GRL-50KM_clim/GRL-50KM_TOPO.nc"
     call nc_read(filename,"lat2D",lats2D)
 
     filename = "insol_0BP.nc"
@@ -56,5 +56,5 @@ program test_insol
         insol_pt = calc_insol_day(day,65.d0,0.d0)
 !         write(*,"(i10,f10.2)") day, insol_pt 
     end do 
-
+    
 end program 
