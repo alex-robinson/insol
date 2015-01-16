@@ -1,8 +1,4 @@
 
-! To compile:
-! gfortran -o test_insol.x ../coord/interp1D.f90 insolation.f90 test_insol.f90
-! gfortran -o test_insol.x ../ncio/ncio3.f90 sinsol_orbit.f test_insol.f90
-
 program test_insol 
 
     use insolation 
@@ -10,16 +6,17 @@ program test_insol
 
     implicit none 
 
-    integer, parameter :: nlat = 181
+    integer, parameter :: nlat = 181, nlon = 361
     integer, parameter :: nday = 360  
     double precision   :: lats(nlat), days(nday), insol(nlat,nday)
+    double precision   :: lons(nlon), insol2D(nlon,nlat)
     integer :: i, day
     character(len=256) :: filename 
     double precision :: lats2D(37,61), insol2D(37,61)
     double precision :: insol_pt 
 
     ! Load 2D latitudes to calculate 2D insolation
-    filename = "../gridding/output/Greenland/GRL-50KM_clim/GRL-50KM_TOPO.nc"
+    filename = "GRL-50KM_TOPO.nc"
     call nc_read(filename,"lat2D",lats2D)
 
     filename = "insol_0BP.nc"
@@ -58,3 +55,4 @@ program test_insol
     end do 
     
 end program 
+
