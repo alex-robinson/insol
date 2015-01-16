@@ -26,7 +26,7 @@ program test_insol
     end do 
 
     ! Load a 2D array of lats from a stereographic projection 
-    filename = "GRL-50KM_TOPO.nc"
+    filename = "test_data/GRL-50KM_TOPO.nc"
     call nc_read(filename,"xc",xc)
     call nc_read(filename,"yc",yc)
     call nc_read(filename,"lat2D",lats2D)
@@ -43,7 +43,7 @@ program test_insol
     end do 
     
     ! Prepare NetCDF test output file with dimension variables
-    filename = "insol_0BP.nc"
+    filename = "test_data/insol_0BP.nc"
     call nc_create(filename)
     call nc_write_dim(filename,"lat",x=lats)
     call nc_write_dim(filename,"day",x=days)
