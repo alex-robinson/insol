@@ -17,3 +17,17 @@ day_year   Total number of days in the year, currently only
 fldr       Folder containing table of precomputed orbital 
            parameter values (optional, default=input/)
 ```
+
+Additional interfaces to be developed may include:
+
+```fortran
+double precision function calc_insol_daily(days,lat,time_bp,[S0],[day_year],[fldr])
+```
+... to calculate daily insolation over a year for a given latitude.
+
+```fortran
+double precision function calc_insol_hour(hour,day,lats,time_bp,[S0],[day_year],[fldr])
+```
+... to calculate the hourly insolation for a given day and latitude(s).
+
+More?
