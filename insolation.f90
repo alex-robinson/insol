@@ -30,11 +30,7 @@ module insolation
 
     real (dp), parameter :: pi = 2.d0*acos(0.d0)
     real (dp), parameter :: deg_to_rad = pi/180.0_dp
-        
-    integer, parameter            :: n_orbit = 6001 
-    real (dp), dimension(n_orbit) :: TIMEM, ECCM, PERM, XOBM 
-    real (dp)                     :: ECCP, XOBP, PERP 
-
+    
     type orbit_class
         integer :: n_orbit, n_lat
         real (dp), dimension(:), allocatable :: time, eccm, perm, xobm
