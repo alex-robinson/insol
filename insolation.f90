@@ -96,7 +96,7 @@ contains
 
         integer, parameter :: nh = 24 
 
-        real (dp) :: ECC, XOBCH, TPERI, ZAVEXPE
+        real (dp) :: PER, ECC, XOBCH, TPERI, ZAVEXPE
         real (dp) :: PRAE, PCLOCK, PYTIME 
         real (dp) :: PDISSE(nh), PZEN1(nh), PZEN2(nh), PZEN3(nh)
 
@@ -118,9 +118,8 @@ contains
         day_max = 360
         if (present(day_year)) day_max = day_year
 
-        ! Call Berger subroutine to calculate 
-        ! orbital parameters for current year 
-        call BERGOR(time_bp,ECC,XOBCH,TPERI,ZAVEXPE,fldr)
+        ! Calculate orbital parameters for current year 
+        call calc_orbital_par(time_bp,PER,ECC,XOBCH,TPERI,ZAVEXPE,fldr)
 
         ! Get hourly zenith angle values for input into daily insol function
         PYTIME = dble(day)/dble(day_max)*2.0_dp*pi
@@ -167,7 +166,7 @@ contains
 
         integer, parameter :: nh = 24 
 
-        real (dp) :: ECC, XOBCH, TPERI, ZAVEXPE
+        real (dp) :: PER, ECC, XOBCH, TPERI, ZAVEXPE
         real (dp) :: PRAE, PCLOCK, PYTIME 
         real (dp) :: PDISSE(nh), PZEN1(nh), PZEN2(nh), PZEN3(nh)
 
@@ -181,7 +180,6 @@ contains
 
         character(len=*), optional :: fldr 
 
-        
         ! Define the solar constant
         S0_value = 1365.0_dp
         if (present(S0)) S0_value = S0  
@@ -190,9 +188,8 @@ contains
         day_max = 360
         if (present(day_year)) day_max = day_year
 
-        ! Call Berger subroutine to calculate 
-        ! orbital parameters for current year 
-        call BERGOR(time_bp,ECC,XOBCH,TPERI,ZAVEXPE,fldr)
+        ! Calculate orbital parameters for current year 
+        call calc_orbital_par(time_bp,PER,ECC,XOBCH,TPERI,ZAVEXPE,fldr)
 
         ! Get hourly zenith angle values for input into daily insol function
         PYTIME = dble(day)/dble(day_max)*2.0_dp*pi
@@ -252,6 +249,156 @@ contains
         return 
 
     end function calc_insol_day_internal
+
+    subroutine calc_orbital_par(time,per,ecc,obl,tper,zan,fldr)
+        !
+        ! Calculates Earth's orbital parameters for the current time before 1950 (time)
+        !
+        ! Adapted from Fortran77 subroutine BERGOR written by  
+        ! S. J. Lorenz, University of Bremen, 08-03-94.
+        !
+        ! Orbital parameters are loaded from a precalculated table of orbital values
+        !
+        implicit none 
+
+        real (dp) :: time, per, ecc, obl, tper, zan 
+        character(len=*), optional :: fldr 
+
+        integer :: N1, N2 
+        real (dp) :: time_ka, ef 
+        real (dp) :: perm1, perm2 
+        real (dp) :: ang, tgnu, sqecc, tian
+        real (dp) :: days, e, epc
+
+        ! First, initialize global orbital parameter data if necessary
+        if ( .not. allocated(OPAR%time) ) call orbital_par_init(fldr)
+
+        ! Get current time in ka 
+        time_ka = time*1d-3 
+
+        ! Determine indices bracketing current time
+        do N1 = 1, OPAR%n_orbit
+            if (OPAR%time(N1) .gt. time_ka) exit 
+        end do 
+        N1 = N1 - 1
+        N2 = N1 + 1 
+
+        ! Get weighting of each index
+        ef = (time_ka-OPAR%time(N1)) / (OPAR%time(N2)-OPAR%time(N1))
+        
+        ! Get current eccentricity, obliquity and perihelion
+        ecc = (1.0_dp-ef)*OPAR%eccm(N1) + ef*OPAR%eccm(N2)
+        obl = (1.0_dp-ef)*OPAR%xobm(N1) + ef*OPAR%xobm(N2)
+
+        perm1 = OPAR%perm(N1)
+        perm2 = OPAR%perm(N2)
+        if (perm2 .lt. perm1) perm2 = perm2 + 360.0_dp
+        
+        per = (1.0_dp-ef)*perm1 + ef*perm2
+        if (per .gt. 360.0_dp) per = per - 360.0_dp
+
+        !  calculate time of perihelion in year:
+        !  MONIN, A.S.: An Introduction to the Theory of Climate (Reidel Publ.)
+        !   - PER: perihelion from aut. equinox in degrees (BERGER)
+        !   - ECC: eccentricity of Earth's orbit (BERGER)
+
+        ang = per - 180.0_dp
+        if (ang .lt. 0.0_dp) ang = ang+360.0_dp
+        zan   = ang / 180.0_dp*pi                !   =zavexpe
+        tgnu  = tan(zan/2.0_dp)
+        sqecc = dsqrt((1.0_dp-ecc)/(1.0_dp+ecc))
+        e     = 2.0_dp*atan(sqecc*tgnu)          !   Eccentri!   Anomaly
+
+        !   time angle in radians of perihelion from vernal equinox
+
+        tian = e - ecc*sin(e)
+        days = tian*180.0_dp/pi                    !   360 day year only
+        if (days .lt. 0.0_dp) days = days+360.0_dp !   days from ver.eq. to perh.
+
+        !   time in days from begin of year: vernal equinox fixed at 3/21, 12 GMT
+        !    = 80.5 days in 360 day year
+
+        tper = days+80.5_dp
+        if (tper .gt. 360.0_dp) tper = tper-360.0_dp
+
+        epc = ecc*100.0_dp
+      
+        return 
+
+    end subroutine calc_orbital_par 
+
+    subroutine orbital_par_init(fldr)
+        ! Initialize the global module variable OPAR,
+        ! which holds the orbital parameters from -5 Ma => 1 Ma
+        ! Files should be located in subdirectory 'input' or 
+        ! the path 'fldr' should be given as an argument
+
+        implicit none 
+
+        character (len=*), optional :: fldr 
+        character (len=512) :: input_dir
+        character (len=512) :: filen, filep
+        integer :: n 
+
+        ! Define the input directory where orbital parameter files are located
+        input_dir = "input"
+        if (present(fldr)) input_dir = trim(fldr)
+
+        ! First make sure all vectors are deallocated
+        if (allocated(OPAR%time)) deallocate(OPAR%time)
+        if (allocated(OPAR%eccm)) deallocate(OPAR%eccm)
+        if (allocated(OPAR%perm)) deallocate(OPAR%perm)
+        if (allocated(OPAR%xobm)) deallocate(OPAR%xobm)
+        
+        ! Allocate vectors to length of input parameter files
+        OPAR%n_orbit = 6001 
+        allocate(OPAR%time(OPAR%n_orbit),OPAR%eccm(OPAR%n_orbit))
+        allocate(OPAR%perm(OPAR%n_orbit),OPAR%xobm(OPAR%n_orbit))
+
+        ! Specify file names of negative and positive time orbital parameters
+        filen = trim(input_dir)//'/LA2004.INSOLN.5Ma.txt'
+        filep = trim(input_dir)//'/LA2004.INSOLP.1Ma.txt'
+
+        ! ==== PAST (NEGATIVE) TIMES ====
+        write(*,*) "Loading orbital parameters from file: "//trim(filen)
+        open (1,file=trim(filen))
+
+        do n=1,5001
+            read (1,*) OPAR%time(5001-n+1), OPAR%eccm(5001-n+1), OPAR%xobm(5001-n+1), OPAR%perm(5001-n+1)
+        enddo
+
+        close (1)
+
+        ! ==== FUTURE (POSITIVE) TIMES ====
+        write(*,*) "Loading orbital parameters from file: "//trim(filep)
+        open (1,file=trim(filep))
+
+        do n=1,1001
+            read (1,*) OPAR%time(5000+n), OPAR%eccm(5000+n), OPAR%xobm(5000+n), OPAR%perm(5000+n)
+        enddo
+
+        close (1)
+
+        ! Convert from radians to degrees      
+        OPAR%xobm = OPAR%xobm * 180.0/pi
+        OPAR%perm = OPAR%perm * 180.0/pi
+
+        ! Also initialize the default latitude vector for insol calculations
+        ! (actual lat values are interpolated from these generic calcs)
+        OPAR%n_lat = 61 
+        if (allocated(OPAR%lats))   deallocate(OPAR%lats)
+        if (allocated(OPAR%solarm)) deallocate(OPAR%solarm)
+        if (allocated(OPAR%coszm))  deallocate(OPAR%coszm)
+        allocate(OPAR%lats(OPAR%n_lat),OPAR%solarm(OPAR%n_lat),OPAR%coszm(OPAR%n_lat))
+
+        do n = 1, OPAR%n_lat
+            OPAR%lats(n) = -90.0_dp + (n-1)*180.0_dp/dble(OPAR%n_lat-1)
+        end do 
+
+        
+        return 
+
+    end subroutine orbital_par_init 
 
     subroutine ORBIT(ECC,XOBCH,TPERI,ZAVEXPE,  &
                      PCLOCK,PYTIME,PDISSE,PZEN1,PZEN2,PZEN3,PRAE)
@@ -409,182 +556,6 @@ contains
         return
 
     end subroutine ORBIT 
-
-    subroutine BERGOR(BTIME,ECC,XOB,TPER,ZAN,fldr)
-    ! Calculates Earth's orbital parameters for the current time before 1950 (BTIME)
-    !
-    !   S. J. Lorenz   University of Bremen    08-03-94.
-    !     -- Converted to FORTRAN90 by A. Robinson, 03/2014
-    !
-    !      This programm originally used a simple algorithm from A. Berger to 
-    !      compute earth's orbital parameters of any interesting time disc. 
-    !      Now orbital parameters are loaded from a pre-calculated data table.
-    !   
-    !      Berger, A.L., 1978: Long-term variations of daily insolation and
-    !         Quaternary climatic changes, J. Atm. Sci., 35, 2362-2367.
-    !
-        real (dp) :: BTIME, ECC, XOB, TPER, ZANE
-        real (dp) :: ang, PER, tgnu, zan, sqecc, tian
-        real (dp) :: days, e, epc
-        character(len=*), optional :: fldr 
-
-        ! Get pre-calculated orbital parameters with subroutine ORBIT_PAR   
-        call orbit_par_now(BTIME,PER,ECC,XOB,fldr)
-
-        !  compute new orbital parameters for *ORBIT.NEW*:
-        !  -----------------------------------------------
-
-        !  calculate time of perihelion in year:
-        !  MONIN, A.S.: An Introduction to the Theory of Climate (Reidel Publ.)
-        !   - PER: perihelion from aut. equinox in degrees (BERGER)
-        !   - ECC: eccentricity of Earth's orbit (BERGER)
-
-        ang = PER - 180.0_dp
-        if (ang .lt. 0.0_dp) ang = ang+360.0_dp
-        zan   = ang / 180.0_dp*pi                !   =zavexpe
-        tgnu  = tan(zan/2.0_dp)
-        sqecc = dsqrt((1.0_dp-ECC)/(1.0_dp+ECC))
-        e     = 2.0_dp*atan(sqecc*tgnu)          !   Eccentri!   Anomaly
-
-        !   time angle in radians of perihelion from vernal equinox
-
-        tian = e - ECC*sin(e)
-        days = tian*180.0_dp/pi                  !   360 day year only
-        if (days .lt. 0.0_dp) days = days+360.0_dp !   days from ver.eq. to perh.
-
-        !   time in days from begin of year: vernal equinox fixed at 3/21, 12 GMT
-        !    = 80.5 days in 360 day year
-
-        TPER = days+80.5_dp
-        if (TPER .gt. 360.0_dp) TPER = TPER-360.0_dp
-
-        epc = ECC*100.0_dp
-      
-        return
-
-    end subroutine BERGOR
-
-    subroutine orbit_par_now(T,PER,ECC,XOB,fldr)
-    ! INPUT : T - Time in years (negative for the past, relative to 1950 AD)   
-    !         fldr - path of the input orbital parameter files             
-    ! OUTPUT: Earth's orbital parameters
-    !           PER  - Longitude of Perihelion (measured from vernal equinox,
-    !                  relative to observation from the earth, i.e. angle from
-    !                  autumnal equinox to perihelion)
-    !           ECC  - Eccentricity
-    !           XOB  - Obliquity
-    !           T    - Attention! T (input) is multiplied by 1000.
-    !
-    ! Global variables: ECCM(6001),PERM(6001),XOBM(6001)
-    !                   ECCP,XOBP,PERP 
-
-        real (dp) :: T, PER, ECC, XOB
-        integer :: N1, N2  
-        real (dp) :: TIME, ef, PERM1, PERM2 
-        character(len=*), optional :: fldr 
-
-        ! First, initialize global orbital parameter data if necessary
-        if ( .not. allocated(OPAR%time) ) call orbit_par_init(fldr)
-
-        ! Get current time in ka 
-        TIME=T*1d-3
-
-        ! Determine indices bracketing current time
-        do N1 = 1, OPAR%n_orbit
-            if (OPAR%time(N1) .gt. TIME) exit 
-        end do 
-        N1 = N1 - 1
-        N2 = N1 + 1 
-
-        ! Get weighting of each index
-        ef = (TIME-OPAR%time(N1)) / (OPAR%time(N2)-OPAR%time(N1))
-
-        ECC = (1.0_dp-ef)*OPAR%eccm(N1) + ef*OPAR%eccm(N2)
-        XOB = (1.0_dp-ef)*OPAR%xobm(N1) + ef*OPAR%xobm(N2)
-
-        PERM1=OPAR%perm(N1)
-        PERM2=OPAR%perm(N2)
-        if (PERM2 .lt. PERM1) PERM2 = PERM2 + 360.0_dp
-        
-        PER = (1.0_dp-ef)*PERM1 + ef*PERM2
-        if (PER .gt. 360.0_dp) PER = PER - 360.0_dp
-
-        return
-      
-    end subroutine orbit_par_now
-
-    subroutine orbit_par_init(fldr)
-        ! Initialize the global module variable OPAR,
-        ! which holds the orbital parameters from -5 Ma => 1 Ma
-        ! Files should be located in subdirectory 'input' or 
-        ! the path 'fldr' should be given as an argument
-
-        implicit none 
-
-        character (len=*), optional :: fldr 
-        character (len=512) :: input_dir
-        character (len=512) :: filen, filep
-        integer :: n 
-
-        ! Define the input directory where orbital parameter files are located
-        input_dir = "input"
-        if (present(fldr)) input_dir = trim(fldr)
-
-        ! First make sure all vectors are deallocated
-        if (allocated(OPAR%time)) deallocate(OPAR%time)
-        if (allocated(OPAR%eccm)) deallocate(OPAR%eccm)
-        if (allocated(OPAR%perm)) deallocate(OPAR%perm)
-        if (allocated(OPAR%xobm)) deallocate(OPAR%xobm)
-        
-        ! Allocate vectors to length of input parameter files
-        OPAR%n_orbit = 6001 
-        allocate(OPAR%time(OPAR%n_orbit),OPAR%eccm(OPAR%n_orbit))
-        allocate(OPAR%perm(OPAR%n_orbit),OPAR%xobm(OPAR%n_orbit))
-
-        ! Specify file names of negative and positive time orbital parameters
-        filen = trim(input_dir)//'/LA2004.INSOLN.5Ma.txt'
-        filep = trim(input_dir)//'/LA2004.INSOLP.1Ma.txt'
-
-        ! ==== PAST (NEGATIVE) TIMES ====
-        write(*,*) "Loading orbital parameters from file: "//trim(filen)
-        open (1,file=trim(filen))
-
-        do n=1,5001
-            read (1,*) OPAR%time(5001-n+1), OPAR%eccm(5001-n+1), OPAR%xobm(5001-n+1), OPAR%perm(5001-n+1)
-        enddo
-
-        close (1)
-
-        ! ==== FUTURE (POSITIVE) TIMES ====
-        write(*,*) "Loading orbital parameters from file: "//trim(filep)
-        open (1,file=trim(filep))
-
-        do n=1,1001
-            read (1,*) OPAR%time(5000+n), OPAR%eccm(5000+n), OPAR%xobm(5000+n), OPAR%perm(5000+n)
-        enddo
-
-        close (1)
-
-        ! Convert from radians to degrees      
-        OPAR%xobm = OPAR%xobm * 180.0/pi
-        OPAR%perm = OPAR%perm * 180.0/pi
-
-        ! Also initialize the default latitude vector for insol calculations
-        ! (actual lat values are interpolated from these generic calcs)
-        OPAR%n_lat = 61 
-        if (allocated(OPAR%lats))   deallocate(OPAR%lats)
-        if (allocated(OPAR%solarm)) deallocate(OPAR%solarm)
-        if (allocated(OPAR%coszm))  deallocate(OPAR%coszm)
-        allocate(OPAR%lats(OPAR%n_lat),OPAR%solarm(OPAR%n_lat),OPAR%coszm(OPAR%n_lat))
-
-        do n = 1, OPAR%n_lat
-            OPAR%lats(n) = -90.0_dp + (n-1)*180.0_dp/dble(OPAR%n_lat-1)
-        end do 
-
-        
-        return 
-
-    end subroutine orbit_par_init 
 
 end module
 

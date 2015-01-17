@@ -33,7 +33,8 @@ program test_insol
 
     ! Initially load module with a simple call
     ! (this reads the orbital values from the input files)
-    insol_pt = calc_insol_day(day,65.d0,0.d0)
+    insol_pt = calc_insol_day(170,65.d0,0.d0)
+    write(*,"(a,f12.2)") "Insolation (W/m2) June 20 at 65 N = ",insol_pt 
 
     ! Test point lat calculations (65 N, year 0)
     write(*,"(a12,a12)") "day", "S (W/m2)" 
