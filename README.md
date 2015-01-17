@@ -1,6 +1,6 @@
 # insol API
 
-Currently there is one public function available in the insol module: `calc_insol_day`. This function returns the average insolation for a given day of year, latitude, time between 5 Ma years before present and 1 Ma into the future. The function can calculate the insolation for a point, a vector of latitudes, or a 2D array of latitudes, returning a double with the same size as the input latitude. 
+Currently there is one public function available in the insol module: `calc_insol_day`. This function returns the average insolation for a given day of year, latitude, time between 5 Ma years before present and 1 Ma into the future. The function can calculate the insolation for a point, a vector of latitudes, or a 2D array of latitudes, returning a double with the same size as the input. 
 
 ```fortran
 double precision function calc_insol_day(day,lats,time_bp,[S0],[day_year],[fldr])
