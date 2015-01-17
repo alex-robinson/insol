@@ -8,7 +8,7 @@ double precision function calc_insol_day(day,lats,time_bp,[S0],[day_year],[fldr]
 
 ```
 day        Day of the year
-lats       point, vector or array of latitude values of interest 
+lats       point, vector or 2D array of latitude values of interest 
            (-90:90 degrees)
 time_bp    "time before present", ie, year relative to 1950
 S0         Solar constant (optional, default 1365.0 W/m2)
