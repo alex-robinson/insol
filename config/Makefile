@@ -43,6 +43,9 @@ $(objdir)/interp1D.o: interp1D.f90
 $(objdir)/insolation.o: insolation.f90
 	$(FC) $(DFLAGS) $(FFLAGS) -c -o $@ $<
 
+$(objdir)/irradiance.o: irradiance.f90
+	$(FC) $(DFLAGS) $(FFLAGS) -c -o $@ $<
+
 $(objdir)/sinsol_orbit.o: sinsol_orbit.f
 	$(FC) $(DFLAGS) $(FFLAGS) -c -o $@ $<
 
@@ -52,7 +55,15 @@ $(objdir)/sinsol_orbit.o: sinsol_orbit.f
 ##
 ###############################################
 
-test: $(objdir)/ncio.o $(objdir)/interp1D.o $(objdir)/insolation.o
+# Static library compilation
+yelmo-static: $(yelmo_libs) $(yelmo_physics) $(yelmo_base) $(yelmo_tests)
+	ar rc $(objdir)/libyelmo.a $(yelmo_libs) $(yelmo_physics) $(yelmo_base) $(yelmo_tests)
+	ranlib $(objdir)/libyelmo.a
+	@echo " "
+	@echo "    $(objdir)/libyelmo.a is ready."
+	@echo " "
+
+test: $(objdir)/ncio.o $(objdir)/interp1D.o $(objdir)/insolation.o $(objdir)/irradiance.o
 	$(FC) $(DFLAGS) $(FFLAGS) $(INC_NC) -o $(bindir)/test_insol.x $^ $(srcdir)/test_insol.f90 $(LFLAGS)
 	@echo " "
 	@echo "    test_insol.x is ready."
@@ -71,5 +82,5 @@ insol65N: $(objdir)/ncio.o $(objdir)/interp1D.o $(objdir)/insolation.o
 	@echo " "
 
 clean:
-	rm -f test_insol.x $(objdir)/*.o $(objdir)/*.mod
+	rm -f $(srcdir)/*.x $(objdir)/*.o $(objdir)/*.mod
 
