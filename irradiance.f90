@@ -27,7 +27,7 @@ module irradiance
 
 contains 
 
-    subroutine calc_dni_point(dni,ghi,hour,lat,lon,pres,zone)
+    subroutine calc_dni_point(dni,ghi,hour,lat,lon)
         !def getDNI(ghi=0, hour=0, lat=0, lon=0, press=1013.25, zone=8, debug=False):
         
         implicit none 
@@ -37,8 +37,7 @@ contains
         real(wp), intent(IN)  :: hour
         real(wp), intent(IN)  :: lat
         real(wp), intent(IN)  :: lon
-        real(wp), intent(IN)  :: pres
-        integer,  intent(IN)  :: zone
+        !real(wp), intent(IN)  :: pres
         
         ! Local variables 
         real(wp) :: hour_of_year
@@ -57,8 +56,6 @@ contains
         real(wp) :: am, kt, kn, knc
         real(wp) :: a, b, c 
 
-         
-
         real(wp), parameter :: S0 = 1370.0_wp 
 
         ! Assign input arguments to local variables 
@@ -67,8 +64,16 @@ contains
         latitude     = lat
         longitude    = lon
         day_angle    = (2.0*pi) * min( (day_of_year - 1) / 365.0_wp, 1.0)
-        time_zone    = zone
-        pressure     = pres
+        !pressure     = pres
+
+        ! Assume standard pressure for now 
+        pressure     = 1013.25_wp 
+
+        ! Assume that all input data is in UTC time zone 
+        time_zone = 0.0_wp 
+
+        ! Calculate time zone as a function of longitude 
+
 
         etr = S0 * (1.00011 + 0.034221 * cos(day_angle) + 0.00128 * sin(day_angle) + &
               0.000719 * cos(2.0 * day_angle) + 0.000077 * sin(2.0 * day_angle))

@@ -63,6 +63,12 @@ yelmo-static: $(yelmo_libs) $(yelmo_physics) $(yelmo_base) $(yelmo_tests)
 	@echo "    $(objdir)/libyelmo.a is ready."
 	@echo " "
 
+test_dni: $(objdir)/ncio.o $(objdir)/interp1D.o $(objdir)/insolation.o $(objdir)/irradiance.o
+	$(FC) $(DFLAGS) $(FFLAGS) $(INC_NC) -o $(bindir)/test_dni.x $^ $(srcdir)/test_dni.f90 $(LFLAGS)
+	@echo " "
+	@echo "    test_dni.x is ready."
+	@echo " "
+
 test: $(objdir)/ncio.o $(objdir)/interp1D.o $(objdir)/insolation.o $(objdir)/irradiance.o
 	$(FC) $(DFLAGS) $(FFLAGS) $(INC_NC) -o $(bindir)/test_insol.x $^ $(srcdir)/test_insol.f90 $(LFLAGS)
 	@echo " "
