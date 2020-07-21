@@ -26,12 +26,15 @@ module irradiance
     
     private 
     public :: sp, dp, wp, MISSING_VALUE, MV, pi, degrees_to_radians, radians_to_degrees
-    public :: calc_dni_point
+    public :: calc_dni_disc
     public :: calc_zenith_angle
 
 contains 
 
-    subroutine calc_dni_point(dni,ghi,hour,lat,lon)
+    subroutine calc_dni_disc(dni,ghi,hour,lat,lon)
+        ! Direct Insolation Simulation Code (DISC) model
+        ! Maxwell (1987), SERI Technical Report 
+        ! https://www.nrel.gov/grid/solar-resource/disc.html
         !def getDNI(ghi=0, hour=0, lat=0, lon=0, press=1013.25, zone=8, debug=False):
         
         implicit none 
@@ -52,12 +55,12 @@ contains
         real(wp) :: time_zone 
         real(wp) :: pressure 
 
-        real(wp) :: etr 
+        real(wp) :: I0                  ! Insolation/irradiance top-of-atmosphere (extraterrestial radiation)
         real(wp) :: dec 
         real(wp) :: eqt  
         real(wp) :: zenith_angle
         real(wp) :: cos_zenith_angle
-        real(wp) :: am, kt, kn, knc
+        real(wp) :: m_air, kt, kn, knc
         real(wp) :: a, b, c 
 
         real(wp), parameter :: S0 = 1370.0_wp 
@@ -74,83 +77,65 @@ contains
         cos_zenith_angle = cos(zenith_angle*degrees_to_radians) 
 
         ! Assume standard pressure for now 
-        pressure     = 1013.25_wp 
+        pressure = 1013.25_wp 
 
         ! Assume that all input data is in UTC time zone 
         time_zone = 0.0_wp 
 
         ! Normal insolation at the top of the atmosphere
-        etr = S0 * (1.00011 + 0.034221 * cos(day_angle) + 0.00128 * sin(day_angle) + &
+        I0 = S0 * (1.00011 + 0.034221 * cos(day_angle) + 0.00128 * sin(day_angle) + &
               0.000719 * cos(2.0 * day_angle) + 0.000077 * sin(2.0 * day_angle))
         
-        !am =  (1.0/cos_zenith_angle)
+        ! Calculate air mass am 
         if (zenith_angle < 80) then 
-            am = 1.0 / (cos_zenith_angle + 0.15 / pow(93.885 - zenith_angle, 1.253)) * (pressure / 1013.25)
+            m_air = 1.0 / (cos_zenith_angle + 0.15 / pow(93.885 - zenith_angle, 1.253)) * (pressure / 1013.25)
         else
-            am = 0.0
+            m_air = 0.0
         end if
 
-        if (am > 0) then 
-            kt = ghi / (cos_zenith_angle * etr)
+        ! Calculate clearness index kt 
+        if (m_air > 0) then 
+            kt = ghi / (cos_zenith_angle * I0)
         else
             kt = 0.0
         end if
         
         if (kt .gt. 1.0) then 
             write(*,*) "kt > 1 !" 
-            write(*,*) "kt = ", kt, ghi, etr, cos_zenith_angle, zenith_angle
+            write(*,*) "kt = ", kt, ghi, I0, cos_zenith_angle, zenith_angle
             stop 
         end if
 
-        a = 0.0
-        if (kt > 0) then 
-            if (kt > 0.6) then 
-                a = -5.743 + 21.77 * kt - 27.49 * pow(kt, 2.0_wp) + 11.56 * pow(kt, 3.0_wp)
-            else if (kt < 0.6) then
-                a = 0.512 - 1.56 * kt + 2.286 * pow(kt, 2.0_wp) - 2.222 * pow(kt, 3.0_wp)
-            end if
-        end if
+        if (kt .gt. 0.6) then 
 
-        b = 0.0
-        if (kt > 0) then
-            if (kt > 0.6) then
-                b = 41.4 - 118.5 * kt + 66.05 * pow(kt, 2.0_wp) + 31.9 * pow(kt, 3.0_wp)
-            else if (kt < 0.6) then
-                b = 0.37 + 0.962 * kt
-            end if 
+            a = -5.743 +  21.77*kt -  27.49*kt**2.0 + 11.56*kt**3.0
+            b =  41.40 - 118.50*kt +  66.05*kt**2.0 + 31.90*kt**3.0
+            c = -47.01 + 184.20*kt - 222.00*kt**2.0 + 73.81*kt**3.0
+
+        else 
+
+            a =  0.512 - 1.560*kt + 2.286*kt**2.0 - 2.222*kt**3.0
+            b =  0.370 + 0.962*kt
+            c = -0.280 + 0.932*kt - 2.048*kt**2.0
+
         end if 
 
-        c = 0.0
-        if (kt > 0) then
-            if (kt > 0.6) then
-                c = -47.01 + 184.2 * kt - 222 * pow(kt, 2.0_wp) + 73.81 * pow(kt, 3.0_wp)
-            else if (kt < 0.6) then
-                c = -0.28 + 0.932 * kt - 2.048 * pow(kt, 2.0_wp)
-            end if
-        end if 
+        kn = a + b * exp(c * m_air)
+        knc = 0.886 - 0.122*m_air + 0.0121*m_air**2.0 &
+                - 0.000653*m_air**3.0 + 0.000014*m_air**4.0
 
-        kn = 0.0
-        if (kt > 0) then
-            kn = a + b * exp(c * am)
-        end if 
-
-        knc = 0.0
-        if (kt > 0) then 
-            knc = 0.886 - 0.122 * am + 0.0121 * pow(am, 2.0_wp) - 0.000653 * pow(am, 3.0_wp) + 0.000014 * pow(am, 4.0_wp)
-        end if
-
-        if (kt > 0 .and. etr * (knc - kn) >= 0) then 
-            dni = etr * (knc - kn)
+        if (kt .gt. 0.0 .and. I0*(knc-kn) .ge. 0.0) then 
+            dni = I0*(knc-kn)
         else 
             dni = 0.0_wp 
         end if
 
-        !write(*,*) "testing: ", hour_of_year, zenith_angle, am, kt, a, b, c, kn, knc, dni
+        !write(*,*) "testing: ", hour_of_year, zenith_angle, m_air, kt, a, b, c, kn, knc, dni
         !stop 
 
         return 
 
-    end subroutine calc_dni_point
+    end subroutine calc_dni_disc
 
 
     subroutine calc_zenith_angle(zenith_angle,hour,lat,lon)

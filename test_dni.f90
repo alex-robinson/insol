@@ -49,24 +49,24 @@ program test_dni
     zenith_angle = 0.0_wp 
     dni = 0.0_wp 
 
-    i = 2 
-    j = 2 
-
-        do k = 1, nt 
-            call calc_zenith_angle(zenith_angle(i,j,k),time(k),lat(j),lon(i))
-            call calc_dni_point(dni(i,j,k),ghi(i,j,k),time(k),lat(j),lon(i))
-        end do
-
-
-    ! do i = 1, nx 
-    ! do j = 1, ny 
+    ! i = 2 
+    ! j = 2 
 
     !     do k = 1, nt 
-    !         call calc_dni_point(dni(i,j,k),ghi(i,j,k),time(k),lat(j),lon(i))
+    !         call calc_zenith_angle(zenith_angle(i,j,k),time(k),lat(j),lon(i))
+    !         call calc_dni_disc(dni(i,j,k),ghi(i,j,k),time(k),lat(j),lon(i))
     !     end do
 
-    ! end do 
-    ! end do 
+
+    do i = 1, nx 
+    do j = 1, ny 
+
+        do k = 1, nt 
+            call calc_dni_disc(dni(i,j,k),ghi(i,j,k),time(k),lat(j),lon(i))
+        end do
+
+    end do 
+    end do 
 
 
     ! Write to output file 
@@ -80,6 +80,6 @@ program test_dni
     call nc_write(filename_out,"zenith_angle",  zenith_angle,   dim1="longitude",dim2="latitude",dim3="time")
     call nc_write(filename_out,"ghi",           ghi,            dim1="longitude",dim2="latitude",dim3="time")
     call nc_write(filename_out,"dni",           dni,            dim1="longitude",dim2="latitude",dim3="time")
-    
+
 
 end program test_dni
