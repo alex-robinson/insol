@@ -31,7 +31,7 @@ module irradiance
 
 contains 
 
-    subroutine calc_dni_disc(dni,ghi,hour,lat,lon)
+    subroutine calc_dni_disc(dni,hour,lat,lon,ghi,pres,tisr)
         ! Direct Insolation Simulation Code (DISC) model
         ! Maxwell (1987), SERI Technical Report 
         ! https://www.nrel.gov/grid/solar-resource/disc.html
@@ -39,13 +39,14 @@ contains
         
         implicit none 
 
-        real(wp), intent(OUT) :: dni 
-        real(wp), intent(IN)  :: ghi
-        real(wp), intent(IN)  :: hour
-        real(wp), intent(IN)  :: lat
-        real(wp), intent(IN)  :: lon
-        !real(wp), intent(IN)  :: pres
-        
+        real(wp), intent(OUT) :: dni        ! [W/m2]
+        real(wp), intent(IN)  :: hour       ! [Hour of the year]
+        real(wp), intent(IN)  :: lat        ! [Degrees North]
+        real(wp), intent(IN)  :: lon        ! [Degrees East]
+        real(wp), intent(IN)  :: ghi        ! [W/m2]
+        real(wp), intent(IN)  :: pres       ! [Pa]
+        real(wp), intent(IN)  :: tisr       ! [W/m2] TOA incident solar radiation
+
         ! Local variables 
         real(wp) :: hour_of_year
         integer  :: day_of_year
@@ -60,10 +61,12 @@ contains
         real(wp) :: eqt  
         real(wp) :: zenith_angle
         real(wp) :: cos_zenith_angle
-        real(wp) :: m_air, kt, kn, knc
+        real(wp) :: m_air, kt, kn, knc, del_kn
         real(wp) :: a, b, c 
+        real(wp) :: kt2, kt3 
 
         real(wp), parameter :: S0 = 1370.0_wp 
+        real(wp), parameter :: standard_pressure = 101325_wp  
 
         ! Assign input arguments to local variables 
         hour_of_year = hour
@@ -72,28 +75,53 @@ contains
         longitude    = lon
         day_angle    = (2.0*pi) * (day_of_year - 1) / 365.0_wp
 
+        ! Assume that all input data is in UTC time zone 
+        time_zone = 0.0_wp 
+
+        if (pres .gt. 0.0_wp) then 
+            ! Use pressure provided as an argument 
+
+            pressure = pres 
+
+        else  
+            ! Assume standard pressure for now [Pa]
+            pressure = standard_pressure
+
+        end if 
+
+        if (tisr .ge. 0.0_wp) then 
+            ! Use TOA incident solar radiation for arguments 
+
+            I0 = tisr 
+
+        else 
+            ! Normal insolation at the top of the atmosphere
+            ! following Spencer 1971, ref Maxwell 1987)
+
+            I0 = S0 * (1.00011 + 0.034221 * cos(day_angle) + 0.00128 * sin(day_angle) + &
+                  0.000719 * cos(2.0 * day_angle) + 0.000077 * sin(2.0 * day_angle))
+        
+        end if 
+
+        ! TESTING 
+        pressure = standard_pressure
+        I0 = S0 * (1.00011 + 0.034221 * cos(day_angle) + 0.00128 * sin(day_angle) + &
+              0.000719 * cos(2.0 * day_angle) + 0.000077 * sin(2.0 * day_angle))
+        
+
         ! Calculate zenith angle and its cosine
         call calc_zenith_angle(zenith_angle,hour_of_year,latitude,longitude)
         cos_zenith_angle = cos(zenith_angle*degrees_to_radians) 
 
-        ! Assume standard pressure for now 
-        pressure = 1013.25_wp 
-
-        ! Assume that all input data is in UTC time zone 
-        time_zone = 0.0_wp 
-
-        ! Normal insolation at the top of the atmosphere
-        I0 = S0 * (1.00011 + 0.034221 * cos(day_angle) + 0.00128 * sin(day_angle) + &
-              0.000719 * cos(2.0 * day_angle) + 0.000077 * sin(2.0 * day_angle))
-        
         ! Calculate air mass am 
         if (zenith_angle < 80) then 
-            m_air = 1.0 / (cos_zenith_angle + 0.15 / pow(93.885 - zenith_angle, 1.253)) * (pressure / 1013.25)
+            m_air = 1.0 / (cos_zenith_angle + 0.15 / pow(93.885 - zenith_angle, 1.253)) * (pressure / standard_pressure)
         else
             m_air = 0.0
         end if
 
-        ! Calculate clearness index kt 
+        ! Calculate clearness index kt:
+        ! Global horizontal irradiance over horizontal insolation TOA 
         if (m_air > 0) then 
             kt = ghi / (cos_zenith_angle * I0)
         else
@@ -106,26 +134,32 @@ contains
             stop 
         end if
 
+        ! Calculate powers of kt 
+        kt2 = kt*kt 
+        kt3 = kt2*kt 
+
         if (kt .gt. 0.6) then 
 
-            a = -5.743 +  21.77*kt -  27.49*kt**2.0 + 11.56*kt**3.0
-            b =  41.40 - 118.50*kt +  66.05*kt**2.0 + 31.90*kt**3.0
-            c = -47.01 + 184.20*kt - 222.00*kt**2.0 + 73.81*kt**3.0
+            a = -5.743 +  21.77*kt -  27.49*kt2 + 11.56*kt3
+            b =  41.40 - 118.50*kt +  66.05*kt2 + 31.90*kt3
+            c = -47.01 + 184.20*kt - 222.00*kt2 + 73.81*kt3
 
         else 
 
-            a =  0.512 - 1.560*kt + 2.286*kt**2.0 - 2.222*kt**3.0
+            a =  0.512 - 1.560*kt + 2.286*kt2 - 2.222*kt3
             b =  0.370 + 0.962*kt
-            c = -0.280 + 0.932*kt - 2.048*kt**2.0
+            c = -0.280 + 0.932*kt - 2.048*kt2
 
         end if 
 
-        kn = a + b * exp(c * m_air)
-        knc = 0.886 - 0.122*m_air + 0.0121*m_air**2.0 &
-                - 0.000653*m_air**3.0 + 0.000014*m_air**4.0
+        del_kn = a + b * exp(c * m_air)
+        knc    = 0.886 - 0.122*m_air + 0.0121*m_air**2.0 &
+                        - 0.000653*m_air**3.0 + 0.000014*m_air**4.0
 
-        if (kt .gt. 0.0 .and. I0*(knc-kn) .ge. 0.0) then 
-            dni = I0*(knc-kn)
+        kn     = knc - del_kn 
+
+        if (kt .gt. 0.0 .and. I0*kn .ge. 0.0) then 
+            dni = I0*kn
         else 
             dni = 0.0_wp 
         end if
