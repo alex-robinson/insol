@@ -45,7 +45,7 @@ contains
         real(wp), intent(IN)  :: lon        ! [Degrees East]
         real(wp), intent(IN)  :: ghi        ! [W/m2]
         real(wp), intent(IN)  :: pres       ! [Pa]
-        real(wp), intent(IN)  :: tisr       ! [W/m2] TOA incident solar radiation
+        real(wp), intent(IN)  :: tisr       ! [W/m2] TOA incident solar radiation (horizontal)
 
         ! Local variables 
         real(wp) :: hour_of_year
@@ -57,13 +57,14 @@ contains
         real(wp) :: pressure 
 
         real(wp) :: I0                  ! Insolation/irradiance top-of-atmosphere (extraterrestial radiation)
+        real(wp) :: I0_horizontal       ! Horizontal TOA irrandiance
         real(wp) :: dec 
         real(wp) :: eqt  
         real(wp) :: zenith_angle
         real(wp) :: cos_zenith_angle
         real(wp) :: m_air, kt, kn, knc, del_kn
         real(wp) :: a, b, c 
-        real(wp) :: kt2, kt3 
+        real(wp) :: kt2, kt3  
 
         real(wp), parameter :: S0 = 1370.0_wp 
         real(wp), parameter :: standard_pressure = 101325_wp  
@@ -88,49 +89,46 @@ contains
             pressure = standard_pressure
 
         end if 
-
-        if (tisr .ge. 0.0_wp) then 
-            ! Use TOA incident solar radiation for arguments 
-
-            I0 = tisr 
-
-        else 
-            ! Normal insolation at the top of the atmosphere
-            ! following Spencer 1971, ref Maxwell 1987)
-
-            I0 = S0 * (1.00011 + 0.034221 * cos(day_angle) + 0.00128 * sin(day_angle) + &
-                  0.000719 * cos(2.0 * day_angle) + 0.000077 * sin(2.0 * day_angle))
         
-        end if 
-
-        ! TESTING 
-        pressure = standard_pressure
-        I0 = S0 * (1.00011 + 0.034221 * cos(day_angle) + 0.00128 * sin(day_angle) + &
-              0.000719 * cos(2.0 * day_angle) + 0.000077 * sin(2.0 * day_angle))
-        
-
         ! Calculate zenith angle and its cosine
         call calc_zenith_angle(zenith_angle,hour_of_year,latitude,longitude)
         cos_zenith_angle = cos(zenith_angle*degrees_to_radians) 
 
-        ! Calculate air mass am 
+        ! Calculate air mass 
         if (zenith_angle < 80) then 
             m_air = 1.0 / (cos_zenith_angle + 0.15 / pow(93.885 - zenith_angle, 1.253)) * (pressure / standard_pressure)
         else
             m_air = 0.0
         end if
 
+        ! Normal insolation at the top of the atmosphere
+        ! following Spencer 1971, ref Maxwell 1987)
+        I0 = S0 * (1.00011 + 0.034221 * cos(day_angle) + 0.00128 * sin(day_angle) + &
+              0.000719 * cos(2.0 * day_angle) + 0.000077 * sin(2.0 * day_angle))
+
+        if (tisr .ge. 0.0_wp) then 
+            ! Use horizontal incident irrandiance from input 
+
+            I0_horizontal = tisr 
+
+        else 
+            ! Calculate from parameterized irradiance 
+
+            I0_horizontal = (cos_zenith_angle * I0)
+
+        end if
+        
         ! Calculate clearness index kt:
         ! Global horizontal irradiance over horizontal insolation TOA 
         if (m_air > 0) then 
-            kt = ghi / (cos_zenith_angle * I0)
+            kt = ghi / I0_horizontal
         else
             kt = 0.0
         end if
         
         if (kt .gt. 1.0) then 
             write(*,*) "kt > 1 !" 
-            write(*,*) "kt = ", kt, ghi, I0, cos_zenith_angle, zenith_angle
+            write(*,*) "kt = ", kt, ghi, I0, I0_horizontal, pressure, cos_zenith_angle, zenith_angle
             stop 
         end if
 
