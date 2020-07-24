@@ -136,6 +136,7 @@ contains
         kt2 = kt*kt 
         kt3 = kt2*kt 
 
+        ! Calculate coefficients A, B and C 
         if (kt .gt. 0.6) then 
 
             a = -5.743 +  21.77*kt -  27.49*kt2 + 11.56*kt3
@@ -150,17 +151,17 @@ contains
 
         end if 
 
-        del_kn = a + b * exp(c * m_air)
+        ! Calculate the clear-sky atmospheric transmissivity 
+
         knc    = 0.886 - 0.122*m_air + 0.0121*m_air**2.0 &
                         - 0.000653*m_air**3.0 + 0.000014*m_air**4.0
+        
+        del_kn = a + b * exp(c * m_air)
+        
+        kn     = max(knc - del_kn,0.0_wp)
 
-        kn     = knc - del_kn 
-
-        if (kt .gt. 0.0 .and. I0*kn .ge. 0.0) then 
-            dni = I0*kn
-        else 
-            dni = 0.0_wp 
-        end if
+        ! Finally calculate DNI 
+        dni = I0*kn 
 
         !write(*,*) "testing: ", hour_of_year, zenith_angle, m_air, kt, a, b, c, kn, knc, dni
         !stop 
