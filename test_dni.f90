@@ -21,8 +21,11 @@ program test_dni
     character(len=512) :: filename_in 
     character(len=512) :: filename_out  
 
-    filename_in  = "data/era5/southspain/era5_southspain_2019.nc" 
-    filename_out = "data/era5/southspain/era5_southspain_2019_dni.nc"
+    !filename_in  = "data/era5/southspain/era5_southspain_2019.nc" 
+    !filename_out = "data/era5/southspain/era5_southspain_2019_dni.nc"
+    
+    filename_in  = "data/era5/dubai/era5_dubai_2019.nc" 
+    filename_out = "data/era5/dubai/era5_dubai_2019_dni.nc"
     
     nx = nc_size(filename_in,"longitude")
     ny = nc_size(filename_in,"latitude")

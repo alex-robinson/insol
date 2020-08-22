@@ -56,8 +56,8 @@ contains
         real(wp) :: time_zone 
         real(wp) :: pressure 
 
-        real(wp) :: I0                  ! Insolation/irradiance top-of-atmosphere (extraterrestial radiation)
-        real(wp) :: I0_horizontal       ! Horizontal TOA irrandiance
+        real(wp) :: I0                      ! Insolation/irradiance top-of-atmosphere (extraterrestial radiation)
+        real(wp) :: I0_horizontal           ! Horizontal TOA irrandiance
         real(wp) :: dec 
         real(wp) :: eqt  
         real(wp) :: zenith_angle
