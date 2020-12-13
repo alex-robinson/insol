@@ -30,34 +30,3 @@ open(target_dir+"Makefile","w").write(makefile1)
 
 print( "".join(["\n\nMakefile configuration complete for configuration file: ",config_path,"\n"]) )
 
-instructions = '''==== How to run yelmo ====\n
-# Make a link to the ice_data path, if available.
-ln -s path/to/ice_data ice_data 
-
-# Compile a test program
-make clean 
-make yelmo_benchmarks      # makes executable libyelmo/bin/yelmo_benchmarks.x 
-
-# Run the program using run_yelmo.py (see run_yelmo.py -h for details) 
-python run_yelmo.py -r -e benchmarks output/test par/yelmo_EISMINT.nml 
-
-# Check the output 
-cd output/test 
-ncview yelmo2D.nc 
-'''
-
-print(instructions)
-
-
-
-### Old script commands to automatically determine the config_path from host + compiler:
-
-# Determine the current hostname
-#proc = Popen("hostname",shell=True,stdout=PIPE,stderr=PIPE)
-#host = proc.communicate()[0].strip().decode("utf-8")
-
-#if host == "manager.cei.ucm.local": host = "eolo"
-#if host in ["login01","login02"]:   host = "pik"
-
-#print("{}{}_{}".format(config_dir,host,compiler))
-

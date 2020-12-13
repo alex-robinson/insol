@@ -21,11 +21,25 @@ program test_dni
     character(len=512) :: filename_in 
     character(len=512) :: filename_out  
 
+    character(len=56) :: loc_now 
+    character(len=56) :: year_now 
+    integer :: narg 
+
+    narg = command_argument_count()
+
+    if (narg .ne. 2) then 
+        write(*,*) "test_dni:: Error: location and year must be provided as an argument."
+        stop 
+    end if 
+
+    call get_command_argument(1,loc_now)
+    call get_command_argument(2,year_now)
+
     !filename_in  = "data/era5/southspain/era5_southspain_2019.nc" 
     !filename_out = "data/era5/southspain/era5_southspain_2019_dni.nc"
     
-    filename_in  = "data/era5/dubai/era5_dubai_2019.nc" 
-    filename_out = "data/era5/dubai/era5_dubai_2019_dni.nc"
+    filename_in  = "data/era5/"//trim(loc_now)//"/era5_"//trim(loc_now)//"_"//trim(year_now)//".nc" 
+    filename_out = "data/era5/"//trim(loc_now)//"/era5-dni_"//trim(loc_now)//"_"//trim(year_now)//".nc" 
     
     nx = nc_size(filename_in,"longitude")
     ny = nc_size(filename_in,"latitude")
