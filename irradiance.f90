@@ -179,7 +179,7 @@ end if
             a =  0.512 - 1.560*kt + 2.286*kt2 - 2.222*kt3
             b =  0.370 + 0.962*kt
             c = -0.280 + 0.932*kt - 2.048*kt2
-
+            
         else 
 
             a = 0.0
@@ -327,5 +327,5 @@ end if
         return 
 
     end subroutine calc_zenith_angle
-    
+
 end module irradiance

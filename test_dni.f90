@@ -7,14 +7,80 @@ program test_dni
     use irradiance  
     use ncio 
 
-    
-    ! Run a diagnostic test with specific parameter values for testing
-    ! (hard-coded inside routine below) 
-    !call calc_point_dni_test()
+    character(len=56) :: station
+    integer :: year0, year1
+    integer :: year 
+
+    integer :: narg 
+    character(len=56) :: loc_now 
+    character(len=56) :: year_now 
+    real(wp) :: time_zone
 
 
-    ! Run a calculation of NREL station data for a given year
-    call calc_nrel_station(fldr="data/nrel/NRELNSRDBViewerData",stn="848945",year=1998)
+    character(len=56) :: run_case 
+
+
+    run_case = "era5"   ! "point", "nrel", "era5" 
+
+
+    ! ====================================================================
+
+    select case(trim(run_case))
+
+
+    case("point")
+
+        ! Run a diagnostic test with specific parameter values for testing
+        ! (hard-coded inside routine below) 
+        call calc_point_dni_test()
+
+    case("nrel") 
+
+        ! Run a calculation of NREL station data for a given set of years
+        !station = "667526"
+        !station = "677404"
+        station = "848945"
+        year0 = 1998
+        year1 = 2020 
+
+        do year = year0, year1
+
+            call calc_nrel_station(fldr="data/nrel/NRELNSRDBViewerData", &
+                                        stn=station,year=year,print_diagnostics=.FALSE.)
+
+        end do 
+
+    case("era5") 
+
+        ! ===== Load location and year from command line arguments =====
+        narg = command_argument_count()
+
+        if (narg .ne. 2) then 
+            write(*,*) "test_dni:: Error: location and year must be provided as an argument."
+            stop 
+        end if 
+
+        call get_command_argument(1,loc_now)
+        call get_command_argument(2,year_now)
+
+        ! Define time zone depending on location 
+        select case(trim(loc_now))
+
+        case("fuentes")
+            time_zone = 1.0_wp 
+        case("dubai") 
+            time_zone = 4.0_wp 
+
+        case DEFAULT 
+
+            write(5,*) "Error: time_zone not yet defined in code for: ", trim(loc_now)
+            stop 
+
+        end select
+
+        call calc_era5_dni(loc_now,year_now,time_zone)
+
+    end select
 
 contains 
 
@@ -53,14 +119,15 @@ contains
 
     end subroutine calc_point_dni_test
 
-    subroutine calc_nrel_station(fldr,stn,year)
+    subroutine calc_nrel_station(fldr,stn,year,print_diagnostics)
 
         implicit none
 
         character(len=*), intent(IN) :: fldr
         character(len=*), intent(IN) :: stn
         integer, intent(IN) :: year
-        
+        logical, intent(IN) :: print_diagnostics 
+
         ! Local variables 
         character(len=512) :: filepath_info
         character(len=512) :: filepath_in
@@ -70,9 +137,17 @@ contains
         real(wp) :: lat, lon, time_zone, elev
         real(wp) :: hour
         real(wp) :: zenith_angle 
+        real(wp) :: temp 
         real(wp) :: pres 
         real(wp) :: ghi
+        real(wp) :: dhi 
         real(wp) :: dni
+        real(wp) :: zenith_angle_pred
+        real(wp) :: dni_pred 
+
+        integer  :: io_unit, n, stat
+        integer  :: io_unit_out   
+        character(len=56) :: tmp(10) 
 
         ! Define filenames 
         write(year_str,"(i4)") year 
@@ -80,33 +155,90 @@ contains
         filepath_in   = trim(fldr)//"/"//trim(stn)//"-"//year_str//".txt"
         filepath_out  = trim(fldr)//"/"//trim(stn)//"-dni-"//year_str//".txt"
         
-        write(*,*) "filepath_info: ", trim(filepath_info)
-        write(*,*) "filepath_in:   ", trim(filepath_in)
-        write(*,*) "filepath_out:  ", trim(filepath_out)
-        
-        stop 
+        if (print_diagnostics) then 
+            write(*,*) "filepath_info: ", trim(filepath_info)
+            write(*,*) "filepath_in:   ", trim(filepath_in)
+            write(*,*) "filepath_out:  ", trim(filepath_out)
+        end if
 
-        call calc_zenith_angle(zenith_angle,hour,lat,lon,time_zone,print_diagnostics=.FALSE.) 
-        call calc_dni_disc(dni,hour,lat,lon,time_zone,ghi,pres,-1.0_wp,print_diagnostics=.FALSE.)
+        ! === Read in the station information first ===
+
+        io_unit = 99 
+        open(io_unit,status="old",file=trim(filepath_info))
+        read(io_unit,*) tmp(1:5)            ! Read header
+        read(io_unit,*) id, lat, lon, time_zone, elev 
+        close(io_unit) 
+
+        if (print_diagnostics) then
+            write(*,*) "id:        ", id 
+            write(*,*) "lat:       ", lat 
+            write(*,*) "lon:       ", lon 
+            write(*,*) "time_zone: ", time_zone 
+            write(*,*) "elev:      ", elev 
+            write(*,*) 
+        else 
+            write(*,"(a,i10.0)") trim(stn), year
+        end if
+        
+        ! === Read in the input data, calculate dni and go to next line ===
+
+        ! Define output file 
+        io_unit_out = 100 
+        open(io_unit_out,status="unknown",file=trim(filepath_out))
+        write(io_unit_out,"(a,2x,a,2x,a)") "hour", "zenith_angle", "dni" 
+
+        io_unit = 99 
+        open(io_unit,status="old",file=trim(filepath_in))
+        read(io_unit,*) tmp(1:7)            ! Read header
+
+        if (print_diagnostics) then
+            write(*,*) "hour, zenith_angle (in/pred), dni (in/pred): "
+        end if 
+
+        do n = 1, 1000000
+
+            ! Read in this line 
+            read(io_unit,*,iostat=stat) hour, ghi, dni, dhi, zenith_angle, temp, pres
             
+            if (stat .ne. 0) then 
+                ! End of file, exit 
+                exit
+            end if 
+
+            ! Perform calculations
+            call calc_zenith_angle(zenith_angle_pred,hour,lat,lon,time_zone,print_diagnostics=.FALSE.) 
+            call calc_dni_disc(dni_pred,hour,lat,lon,time_zone,ghi,pres,-1.0_wp,print_diagnostics=.FALSE.)
+            
+            if (print_diagnostics) then
+                ! Print summary 
+                write(*,"(f10.0,4f14.2)") hour, zenith_angle, zenith_angle_pred, dni, dni_pred
+            end if 
+
+            ! Write to file too 
+            write(io_unit_out,"(f10.0,4f14.2)") hour, zenith_angle_pred, dni_pred 
+
+        end do 
+
+        close(io_unit) 
+        close(io_unit_out) 
+
         return
 
     end subroutine calc_nrel_station
 
-    subroutine calc_era5_dni()
+    subroutine calc_era5_dni(loc_now,year_now,time_zone)
 
         implicit none 
 
-        ! Local variables 
-        character(len=56) :: loc_now 
-        character(len=56) :: year_now 
-        integer :: narg 
+        character(len=*), intent(IN) :: loc_now 
+        character(len=*), intent(IN) :: year_now 
+        real(wp),         intent(IN) :: time_zone 
 
+        ! Local variables 
         character(len=512) :: filename_in 
         character(len=512) :: filename_out  
 
         integer  :: i, j, k, nx, ny, nt 
-        real(wp) :: time_zone 
         real(wp), allocatable :: lon(:) 
         real(wp), allocatable :: lat(:) 
         real(wp), allocatable :: time(:)
@@ -118,17 +250,7 @@ contains
         real(wp), allocatable :: zenith_angle(:,:,:) 
         real(wp), allocatable :: dni(:,:,:) 
 
-        ! ===== Load location and year from command line arguments =====
-        narg = command_argument_count()
-
-        if (narg .ne. 2) then 
-            write(*,*) "test_dni:: Error: location and year must be provided as an argument."
-            stop 
-        end if 
-
-        call get_command_argument(1,loc_now)
-        call get_command_argument(2,year_now)
-
+        
         ! === Define filenames === 
 
         !filename_in  = "data/era5/southspain/era5_southspain_2019.nc" 
@@ -169,9 +291,6 @@ contains
         ghi  = ghi  / 3600.0_wp                     ! [J/m2] => [W/m2]
         fdir = fdir / 3600.0_wp                     ! [J/m2] => [W/m2] 
 
-        ! Assume input data is already in UTC
-        time_zone = 0.0_wp 
-
         write(*,*) "range(lon):  ", minval(lon),  maxval(lon)
         write(*,*) "range(lat):  ", minval(lat),  maxval(lat)
         write(*,*) "range(time): ", minval(time), maxval(time)
@@ -205,7 +324,7 @@ contains
         call nc_create(filename_out)
         call nc_write_dim(filename_out,"longitude",x=lon)
         call nc_write_dim(filename_out,"latitude",x=lat)
-        call nc_write_dim(filename_out,"time",x=time)
+        call nc_write_dim(filename_out,"time",x=hour)
         
         call nc_write(filename_out,"zenith_angle",  zenith_angle,   dim1="longitude",dim2="latitude",dim3="time")
         call nc_write(filename_out,"tisr",          tisr,           dim1="longitude",dim2="latitude",dim3="time")
