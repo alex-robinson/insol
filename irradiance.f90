@@ -31,7 +31,7 @@ module irradiance
 
 contains 
 
-    subroutine calc_dni_disc(dni,hour,lat,lon,ghi,pres,tisr)
+    subroutine calc_dni_disc(dni,hour,lat,lon,time_zone,ghi,pres,tisr,print_diagnostics)
         ! Direct Insolation Simulation Code (DISC) model
         ! Maxwell (1987), SERI Technical Report 
         ! https://www.nrel.gov/grid/solar-resource/disc.html
@@ -43,17 +43,18 @@ contains
         real(wp), intent(IN)  :: hour       ! [Hour of the year]
         real(wp), intent(IN)  :: lat        ! [Degrees North]
         real(wp), intent(IN)  :: lon        ! [Degrees East]
+        real(wp), intent(IN)  :: time_zone  ! [Hours difference to UTC]
         real(wp), intent(IN)  :: ghi        ! [W/m2]
         real(wp), intent(IN)  :: pres       ! [Pa]
         real(wp), intent(IN)  :: tisr       ! [W/m2] TOA incident solar radiation (horizontal)
+        logical,  intent(IN)  :: print_diagnostics
 
         ! Local variables 
         real(wp) :: hour_of_year
         integer  :: day_of_year
         real(wp) :: latitude
         real(wp) :: longitude
-        real(wp) :: day_angle
-        real(wp) :: time_zone 
+        real(wp) :: day_angle 
         real(wp) :: pressure 
 
         real(wp) :: I0                      ! Insolation/irradiance top-of-atmosphere (extraterrestial radiation)
@@ -76,9 +77,6 @@ contains
         longitude    = lon
         day_angle    = (2.0*pi) * (day_of_year - 1) / 365.0_wp
 
-        ! Assume that all input data is in UTC time zone 
-        time_zone = 0.0_wp 
-
         if (pres .gt. 0.0_wp) then 
             ! Use pressure provided as an argument 
 
@@ -91,12 +89,13 @@ contains
         end if 
         
         ! Calculate zenith angle and its cosine
-        call calc_zenith_angle(zenith_angle,hour_of_year,latitude,longitude)
+        call calc_zenith_angle(zenith_angle,hour_of_year,latitude,longitude, &
+                                                        time_zone,print_diagnostics)
         cos_zenith_angle = cos(zenith_angle*degrees_to_radians) 
 
         ! Calculate air mass 
         if (zenith_angle < 80) then 
-            m_air = 1.0 / (cos_zenith_angle + 0.15 / pow(93.885 - zenith_angle, 1.253)) * (pressure / standard_pressure)
+            m_air = 1.0 / (cos_zenith_angle + 0.15 / (93.885-zenith_angle)**1.253) * (pressure / standard_pressure)
         else
             m_air = 0.0
         end if
@@ -126,11 +125,43 @@ contains
             kt = 0.0
         end if
         
+        ! ! Limit kt to 1.0 !!!
+        ! if (kt .gt. 1.0) then 
+
+        !     kt = 1.0 
+
+        ! end if 
+
+
+if (.FALSE.) then
         if (kt .gt. 1.0) then 
+
+            write(*,*) "=== calc_dni_disc ==="
+            write(*,*)
+            
+            write(*,*) "hour_of_year     = ", hour_of_year 
+            write(*,*) "lat              = ", lat 
+            write(*,*) "lon              = ", lon 
+            write(*,*) "time_zone        = ", time_zone 
+            write(*,*) "zenith_angle     = ", zenith_angle 
+            write(*,*) "cos_zenith_angle = ", cos_zenith_angle 
+            write(*,*) "pressure         = ", pressure
+            write(*,*) "pressure ratio   = ", (pressure / standard_pressure)
+
+            write(*,*) "m_air            = ", m_air 
+            write(*,*) "ghi              = ", ghi
+            write(*,*) "I0               = ", I0
+            write(*,*) "I0_horiz         = ", I0_horizontal
+            write(*,*) "kt               = ", kt 
+
+            write(*,*) ""
             write(*,*) "kt > 1 !" 
-            write(*,*) "kt = ", kt, ghi, I0, I0_horizontal, pressure, cos_zenith_angle, zenith_angle
+            write(*,*) ""
+
             stop 
+
         end if
+end if 
 
         ! Calculate powers of kt 
         kt2 = kt*kt 
@@ -143,35 +174,87 @@ contains
             b =  41.40 - 118.50*kt +  66.05*kt2 + 31.90*kt3
             c = -47.01 + 184.20*kt - 222.00*kt2 + 73.81*kt3
 
-        else 
+        else if (kt .gt. 0.0) then
 
             a =  0.512 - 1.560*kt + 2.286*kt2 - 2.222*kt3
             b =  0.370 + 0.962*kt
             c = -0.280 + 0.932*kt - 2.048*kt2
 
+        else 
+
+            a = 0.0
+            b = 0.0 
+            c = 0.0 
+
         end if 
 
         ! Calculate the clear-sky atmospheric transmissivity 
 
-        knc    = 0.886 - 0.122*m_air + 0.0121*m_air**2.0 &
-                        - 0.000653*m_air**3.0 + 0.000014*m_air**4.0
-        
-        del_kn = a + b * exp(c * m_air)
-        
-        kn     = max(knc - del_kn,0.0_wp)
+        if (kt .gt. 0.0) then 
+            knc    = 0.886 - 0.122*m_air + 0.0121*m_air**2.0 &
+                            - 0.000653*m_air**3.0 + 0.000014*m_air**4.0
+            
+            del_kn = a + b * exp(c * m_air)
+            
+            kn     = max(knc - del_kn,0.0_wp)
 
-        ! Finally calculate DNI 
-        dni = I0*kn 
+            ! Finally calculate DNI 
+            dni = I0*kn 
 
-        !write(*,*) "testing: ", hour_of_year, zenith_angle, m_air, kt, a, b, c, kn, knc, dni
-        !stop 
+        else 
+
+            knc    = 0.0 
+            del_kn = 0.0 
+            kn     = 0.0 
+
+            ! Set DNI to zero
+            dni = 0.0 
+
+        end if 
+
+        ! Further corrections
+        if (ghi .lt. 0.0 .or. dni .lt. 0.0) then 
+
+            dni = 0.0
+
+        end if 
+
+        if (print_diagnostics) then 
+            
+            write(*,*) "=== calc_dni_disc ==="
+            write(*,*)
+            
+            write(*,*) "hour_of_year     = ", hour_of_year 
+            write(*,*) "lat              = ", lat 
+            write(*,*) "lon              = ", lon 
+            write(*,*) "time_zone        = ", time_zone 
+            write(*,*) "zenith_angle     = ", zenith_angle 
+            write(*,*) "cos_zenith_angle = ", cos_zenith_angle 
+            write(*,*) "pressure         = ", pressure
+            write(*,*) "pressure ratio   = ", (pressure / standard_pressure)
+
+            write(*,*) "m_air            = ", m_air 
+            write(*,*) "ghi              = ", ghi
+            write(*,*) "I0               = ", I0
+            write(*,*) "I0_horiz         = ", I0_horizontal
+            write(*,*) "kt               = ", kt 
+            write(*,*) "a                = ", a 
+            write(*,*) "b                = ", b 
+            write(*,*) "c                = ", c 
+            write(*,*) "del_kn           = ", del_kn
+            write(*,*) "kn               = ", kn 
+            write(*,*) "knc              = ", knc 
+            write(*,*) "dni              = ", dni
+            write(*,*) 
+
+        end if 
 
         return 
 
     end subroutine calc_dni_disc
 
 
-    subroutine calc_zenith_angle(zenith_angle,hour,lat,lon)
+    subroutine calc_zenith_angle(zenith_angle,hour,lat,lon,time_zone,print_diagnostics)
 
         implicit none 
 
@@ -179,15 +262,17 @@ contains
         real(wp), intent(IN)  :: hour
         real(wp), intent(IN)  :: lat
         real(wp), intent(IN)  :: lon
-        
+        real(wp), intent(IN)  :: time_zone      ! Relative to UTC (0 == UTC)
+        logical,  intent(IN)  :: print_diagnostics
+
         ! Local variables 
         real(wp) :: hour_of_year
+        real(wp) :: hour_of_day
         integer  :: day_of_year
         real(wp) :: latitude
         real(wp) :: longitude
         real(wp) :: day_angle
-        real(wp) :: time_zone 
-         
+
         real(wp) :: dec 
         real(wp) :: eqt 
         real(wp) :: hour_angle 
@@ -197,14 +282,11 @@ contains
 
         ! Assign input arguments to local variables 
         hour_of_year = hour
+        hour_of_day = mod(hour_of_year,24.0_wp)
         day_of_year  = int((hour_of_year - 1) / 24) + 1
         latitude     = lat
         longitude    = lon
-        !day_angle    = (2.0*pi) * min( (day_of_year - 1) / 365.0_wp, 1.0)
         day_angle    = (2.0*pi) * (day_of_year - 1) / 365.0_wp
-
-        ! Assume that all input data is in UTC time zone 
-        time_zone = 0.0_wp 
 
         dec = (0.006918 - 0.399912 * cos(day_angle) + 0.070257 * sin(day_angle) -   &
               0.006758 * cos(2 * day_angle) + 0.000907 * sin(2 * day_angle) -       &
@@ -212,7 +294,7 @@ contains
         eqt = (0.000075 + 0.001868 * cos(day_angle) - 0.032077 * sin(day_angle) -   &
               0.014615 * cos(2 * day_angle) - 0.040849 * sin(2 * day_angle)) * (229.18)
         
-        hour_angle = 15 * (hour_of_year - 12 - 0.5 + eqt / 60 + ((longitude - time_zone * 15) * 4) / 60)
+        hour_angle = 15.0 * (hour_of_year - 12.0 - 0.5 + eqt / 60.0 + ((longitude - time_zone * 15.0) * 4.0) / 60.0)
         
         ! Calculate cosine of zenith angle 
         cos_zenith_angle =  cos(dec*degrees_to_radians)  * &
@@ -224,22 +306,26 @@ contains
         ! Finally, calculate the zenith angle [degrees]
         zenith_angle = acos(cos_zenith_angle) * radians_to_degrees
 
+        if (print_diagnostics) then
+            write(*,*) "== calc_zenith_angle =="
+            write(*,*)
+            write(*,*) "hour_of_year     = ", hour_of_year 
+            write(*,*) "hour_of_day      = ", hour_of_day 
+            write(*,*) "time_zone        = ", time_zone 
+            write(*,*) "lat              = ", lat 
+            write(*,*) "lon              = ", lon 
+            write(*,*) "day_of_year      = ", day_of_year 
+            write(*,*) "day_angle        = ", day_angle 
+            write(*,*) "hour_angle       = ", hour_angle 
+            write(*,*) "dec              = ", dec 
+            write(*,*) "eqt              = ", eqt 
+            write(*,*) "cos_zenith_angle = ", cos_zenith_angle 
+            write(*,*) "zenith_angle     = ", zenith_angle
+            write(*,*)  
+        end if 
+
         return 
 
     end subroutine calc_zenith_angle
-
-    function pow(var,power) result(var_pow)
-
-        implicit none 
-
-        real(wp), intent(IN) :: var
-        real(wp), intent(IN) :: power 
-        real(wp) :: var_pow 
-
-        var_pow = var**power 
-
-        return 
-
-    end function pow
     
 end module irradiance
