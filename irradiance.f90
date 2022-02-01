@@ -63,7 +63,7 @@ contains
         real(wp) :: eqt  
         real(wp) :: zenith_angle
         real(wp) :: cos_zenith_angle
-        real(wp) :: m_air, kt, kn, knc, del_kn
+        real(wp) :: m_air_sl, m_air, kt, kn, knc, del_kn
         real(wp) :: a, b, c 
         real(wp) :: kt2, kt3  
 
@@ -94,11 +94,24 @@ contains
         cos_zenith_angle = cos(zenith_angle*degrees_to_radians) 
 
         ! Calculate air mass 
-        if (zenith_angle < 80) then 
-            m_air = 1.0 / (cos_zenith_angle + 0.15 / (93.885-zenith_angle)**1.253) * (pressure / standard_pressure)
+        if (zenith_angle < 87) then 
+            
+            ! Use Bird & Hulstrom coefficient values (DEFAULT)
+            ! Bird, R., Hulstrom, R., A Simplified Clear Sky Model for Direct and Diffuse Insolation on Horizontal Surfaces, 1981
+            ! NREL SERI/TP-642-761
+            m_air_sl = 1.0 / (cos_zenith_angle + 0.15 * (93.885-zenith_angle)**(-1.253))
+        
+            ! Use Kasten / Sandia Version
+            ! Kasten, F. Discussions on the Relative Air Mass, Light Research Technology 25, 129.
+            !m_air_sl = 1.0 / (cos_zenith_angle + 0.5057 * (96.080-zenith_angle)**(-1.634))
+            
         else
-            m_air = 0.0
+            m_air_sl = 0.0
         end if
+
+        ! Scale by pressure too to get actual estimated air mass
+        m_air = m_air_sl * (pressure / standard_pressure)
+
 
         ! Normal insolation at the top of the atmosphere
         ! following Spencer 1971, ref Maxwell 1987)
@@ -179,7 +192,7 @@ end if
             a =  0.512 - 1.560*kt + 2.286*kt2 - 2.222*kt3
             b =  0.370 + 0.962*kt
             c = -0.280 + 0.932*kt - 2.048*kt2
-            
+
         else 
 
             a = 0.0

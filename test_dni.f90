@@ -20,7 +20,7 @@ program test_dni
     character(len=56) :: run_case 
 
 
-    run_case = "era5"   ! "point", "nrel", "era5" 
+    run_case = "nrel"   ! "point", "nrel", "era5" 
 
 
     ! ====================================================================
@@ -179,7 +179,7 @@ contains
         else 
             write(*,"(a,i10.0)") trim(stn), year
         end if
-        
+
         ! === Read in the input data, calculate dni and go to next line ===
 
         ! Define output file 
