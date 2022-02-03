@@ -16,7 +16,7 @@ module irradiance
     
     ! Error distance (very large), error index, and smallest number epsilon 
     real(wp), parameter :: ERR_DIST = real(1E8,wp) 
-    integer,    parameter :: ERR_IND  = -1 
+    integer,  parameter :: ERR_IND  = -1 
     real(wp), parameter :: tol_underflow = real(1E-15,wp)
 
     ! Mathematical constants
@@ -24,6 +24,9 @@ module irradiance
     real(wp), parameter :: degrees_to_radians = real(pi / 180._dp,wp)  ! Conversion factor between radians and degrees
     real(wp), parameter :: radians_to_degrees = real(180._dp / pi,wp)  ! Conversion factor between degrees and radians
     
+    ! Earth constants
+    real(wp), parameter :: S0 = 1370.0_wp   ! Solar constant 
+
     private 
     public :: sp, dp, wp, MISSING_VALUE, MV, pi, degrees_to_radians, radians_to_degrees
     public :: calc_dni_60min
@@ -112,7 +115,6 @@ contains
         real(wp) :: a, b, c 
         real(wp) :: kt2, kt3  
 
-        real(wp), parameter :: S0 = 1370.0_wp 
         real(wp), parameter :: standard_pressure = 101325_wp  
 
         ! Limit kt to a reasonable value, usually between 0 and 1 (see comments below).
@@ -287,7 +289,7 @@ end if
         end if 
 
         if (print_diagnostics) then
-            
+
             write(*,*) "=== calc_dni_disc ==="
             write(*,*)
             
@@ -339,8 +341,6 @@ end if
         real(wp) :: I0_horizontal
         real(wp) :: kt 
 
-        real(wp), parameter :: S0 = 1370.0_wp 
-
         real(wp), parameter :: N = 0.006
         real(wp), parameter :: M = 4.38 
 
@@ -352,19 +352,7 @@ end if
 
 
 
-        ! Insolation at the top of the atmosphere
-        ! following Spencer (1971), ref Maxwell (1987)
-        I0 = S0 * (1.00011 + 0.034221 * cos(day_angle) + 0.00128 * sin(day_angle) + &
-              0.000719 * cos(2.0 * day_angle) + 0.000077 * sin(2.0 * day_angle))
-
-        ! Global horizontal irradiance at TOA
-        I0_horizontal = (cos_zenith_angle * I0)
-
-        ! Calculate clearness index kt:
-        ! Global horizontal irradiance over horizontal insolation TOA 
-        kt = ghi / I0_horizontal
-
-
+        
         !p = -b1*kt - b2*ast - b3*alpha - b4*kt_day + b5*psi 
 
         dni = (N*M) / (N+(M-N)*exp(p))
@@ -373,10 +361,42 @@ end if
 
     end subroutine calc_dni_boland2013
 
-    subroutine calc_clearness_index()
+    subroutine calc_clearness_index(kt,hour_of_year,zenith_angle,ghi,kt_max)
 
         implicit none
 
+        real(wp), intent(OUT) :: kt
+        real(wp), intent(IN)  :: hour_of_year
+        real(wp), intent(IN)  :: zenith_angle
+        real(wp), intent(IN)  :: ghi
+        real(wp), intent(IN)  :: kt_max 
+
+        ! Local variables 
+        real(wp) :: day_of_year
+        real(wp) :: day_angle 
+        real(wp) :: cos_zenith_angle
+        real(wp) :: I0 
+        real(wp) :: I0_horizontal
+
+        ! Calculate some information
+        day_of_year  = int((hour_of_year - 1) / 24) + 1
+        day_angle    = (2.0*pi) * (day_of_year - 1) / 365.0_wp
+
+        ! Calculate insolation at the top of the atmosphere
+        ! following Spencer (1971), ref Maxwell (1987)
+        I0 = S0 * (1.00011 + 0.034221 * cos(day_angle) + 0.00128 * sin(day_angle) + &
+              0.000719 * cos(2.0 * day_angle) + 0.000077 * sin(2.0 * day_angle))
+
+        ! Calculate global horizontal irradiance at TOA
+        cos_zenith_angle = cos(zenith_angle*degrees_to_radians) 
+        I0_horizontal    = (cos_zenith_angle * I0)
+
+        ! Calculate clearness index kt:
+        ! Global horizontal irradiance over horizontal insolation TOA 
+        kt = ghi / I0_horizontal
+
+        ! Limit kt to reasonable values (kt_max ~ 1.0)
+        kt = min(kt,kt_max)
 
         return
 
