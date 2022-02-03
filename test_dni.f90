@@ -20,7 +20,7 @@ program test_dni
     character(len=56) :: run_case 
 
 
-    run_case = "era5"   ! "point", "nrel", "era5" 
+    run_case = "nrel"   ! "point", "nrel", "era5" 
 
 
     ! ====================================================================

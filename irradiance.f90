@@ -164,12 +164,13 @@ contains
         ! Scale by pressure too to get actual estimated air mass
         m_air = m_air_sl * (pressure / standard_pressure)
 
-
         ! Insolation at the top of the atmosphere
         ! following Spencer (1971), ref Maxwell (1987)
         I0 = S0 * (1.00011 + 0.034221 * cos(day_angle) + 0.00128 * sin(day_angle) + &
               0.000719 * cos(2.0 * day_angle) + 0.000077 * sin(2.0 * day_angle))
 
+if (.FALSE.) then
+    ! Calculate clearness index inline 
 
         if (tisr .ge. 0.0_wp) then 
             ! Use TOA horizontal incident irrandiance from input 
@@ -184,12 +185,6 @@ contains
         end if
         
         ! Calculate clearness index kt:
-        ! Global horizontal irradiance over horizontal insolation TOA 
-        ! if (m_air > 0) then 
-        !     kt = ghi / I0_horizontal
-        ! else
-        !     kt = 0.0
-        ! end if
         kt = ghi / I0_horizontal
 
         ! Limit kt to a reasonable value. As the zenith_angle
@@ -199,39 +194,16 @@ contains
         ! can give an infinity value. Thus, it is better to
         ! limit kt to a reasonable range like 0 to 1.
         kt = min(kt,kt_max)
+else
 
+    ! Use subroutine to calculate clearness index
 
-if (.FALSE.) then
-        if (kt .gt. 1.0) then 
+        call calc_clearness_index(kt,hour_of_year,zenith_angle,ghi,kt_max)
 
-            write(*,*) "=== calc_dni_disc ==="
-            write(*,*)
-            
-            write(*,*) "hour_of_year     = ", hour_of_year 
-            write(*,*) "hour_of_day      = ", hour_of_day 
-            write(*,*) "lat              = ", lat 
-            write(*,*) "lon              = ", lon 
-            write(*,*) "time_zone        = ", time_zone 
-            write(*,*) "zenith_angle     = ", zenith_angle 
-            write(*,*) "cos_zenith_angle = ", cos_zenith_angle 
-            write(*,*) "pressure         = ", pressure
-            write(*,*) "pressure ratio   = ", (pressure / standard_pressure)
+        I0_horizontal = missing_value 
 
-            write(*,*) "m_air            = ", m_air 
-            write(*,*) "ghi              = ", ghi
-            write(*,*) "I0               = ", I0
-            write(*,*) "I0_horiz         = ", I0_horizontal
-            write(*,*) "kt               = ", kt 
-
-            write(*,*) ""
-            write(*,*) "kt > 1 !" 
-            write(*,*) ""
-
-            stop 
-
-        end if
-end if 
-
+end if
+        
         ! Calculate powers of kt 
         kt2 = kt*kt 
         kt3 = kt2*kt 
