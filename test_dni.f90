@@ -20,7 +20,7 @@ program test_dni
     character(len=56) :: run_case 
 
 
-    run_case = "nrel"   ! "point", "nrel", "era5" 
+    run_case = "era5"   ! "point", "nrel", "era5" 
 
 
     ! ====================================================================
@@ -103,16 +103,19 @@ contains
         lon       = -75.0
         lat       =  40.0
         time_zone = -5.0 
-        hour      = 48.0
-        ghi       = -5.0
+        hour      =  9.0
+        ghi       = 100.0
         pres      = 840.0 * 100.0  ! [mb] => [Pa]
 
         ! === Calculate Zenith Angle and DNI ===
         ! (with print_diagnostics=.TRUE., zenith_angle and dni calculation info will be printed to screen)
 
         !call calc_zenith_angle(zenith_angle,hour,lat,lon,time_zone,print_diagnostics=.TRUE.)
-        call calc_dni_disc(dni,hour,lat,lon,time_zone,ghi,pres,-1.0_wp,print_diagnostics=.TRUE.)
+        !call calc_dni_disc(dni,hour,lat,lon,time_zone,ghi,pres,-1.0_wp,print_diagnostics=.TRUE.)
         
+        ! Interpolate time over one hour
+        call calc_dni_60min(dni,hour,lat,lon,time_zone,ghi,pres,-1.0_wp,print_diagnostics=.TRUE.)
+
         stop " === Done. === "
 
         return
@@ -207,15 +210,18 @@ contains
 
             ! Perform calculations
             call calc_zenith_angle(zenith_angle_pred,hour,lat,lon,time_zone,print_diagnostics=.FALSE.) 
-            call calc_dni_disc(dni_pred,hour,lat,lon,time_zone,ghi,pres,-1.0_wp,print_diagnostics=.FALSE.)
+            !call calc_dni_disc(dni_pred,hour,lat,lon,time_zone,ghi,pres,-1.0_wp,print_diagnostics=.FALSE.)
             
+            ! Interpolate time over one hour
+            call calc_dni_60min(dni_pred,hour,lat,lon,time_zone,ghi,pres,-1.0_wp,print_diagnostics=.FALSE.)
+
             if (print_diagnostics) then
                 ! Print summary 
                 write(*,"(f10.0,4f14.2)") hour, zenith_angle, zenith_angle_pred, dni, dni_pred
             end if 
 
             ! Write to file too 
-            write(io_unit_out,"(f10.0,4f14.2)") hour, zenith_angle_pred, dni_pred 
+            write(io_unit_out,"(f10.0,3f14.2)") hour, zenith_angle_pred, dni_pred 
 
         end do 
 
@@ -310,9 +316,11 @@ contains
 
             do k = 1, nt
                 call calc_zenith_angle(zenith_angle(i,j,k),hour(k),lat(j),lon(i),time_zone,print_diagnostics=.FALSE.) 
-                call calc_dni_disc(dni(i,j,k),hour(k),lat(j),lon(i),time_zone,ghi(i,j,k),pres(i,j,k),-1.0_wp,print_diagnostics=.FALSE.)
-                !call calc_dni_disc(dni(i,j,k),hour(k),lat(j),lon(i),ghi(i,j,k),-1.0_wp,-1.0_wp,print_diagnostics=.FALSE.)
+                !call calc_dni_disc(dni(i,j,k),hour(k),lat(j),lon(i),time_zone,ghi(i,j,k),pres(i,j,k),-1.0_wp,print_diagnostics=.FALSE.)
                 
+                ! Interpolate time over one hour
+                call calc_dni_60min(dni(i,j,k),hour(k),lat(j),lon(i),time_zone,ghi(i,j,k),pres(i,j,k),-1.0_wp,print_diagnostics=.FALSE.)
+
             end do
 
         end do 

@@ -26,10 +26,54 @@ module irradiance
     
     private 
     public :: sp, dp, wp, MISSING_VALUE, MV, pi, degrees_to_radians, radians_to_degrees
+    public :: calc_dni_60min
     public :: calc_dni_disc
     public :: calc_zenith_angle
 
 contains 
+    
+    subroutine calc_dni_60min(dni,hour,lat,lon,time_zone,ghi,pres,tisr,print_diagnostics)
+
+        implicit none
+
+        real(wp), intent(OUT) :: dni        ! [W/m2]
+        real(wp), intent(IN)  :: hour       ! [Hour of the year]
+        real(wp), intent(IN)  :: lat        ! [Degrees North]
+        real(wp), intent(IN)  :: lon        ! [Degrees East]
+        real(wp), intent(IN)  :: time_zone  ! [Hours difference to UTC]
+        real(wp), intent(IN)  :: ghi        ! [W/m2]
+        real(wp), intent(IN)  :: pres       ! [Pa]
+        real(wp), intent(IN)  :: tisr       ! [W/m2] TOA incident solar radiation (horizontal)
+        logical,  intent(IN)  :: print_diagnostics
+
+        ! Local variables 
+        integer :: k, nmin
+        real(wp), allocatable :: hour_vals(:)
+        real(wp), allocatable :: dni_vals(:)
+
+
+        ! Do 60 minutes of calculations by default
+        nmin = 60
+
+        allocate(hour_vals(nmin))
+        allocate(dni_vals(nmin))
+
+        dni_vals = 0.0_wp 
+
+        do k = 1, nmin 
+            hour_vals(k) = hour + (-(nmin/2.0_wp) + real(k,wp)) /60_wp
+            call calc_dni_disc(dni_vals(k),hour_vals(k),lat,lon,time_zone,ghi,pres,tisr,print_diagnostics)
+
+            !write(*,*) "calc_dni_60min: ", hour_vals(k), dni_vals(k)
+
+        end do
+
+        ! Return the mean DNI value for this hour
+        dni = sum(dni_vals)/real(nmin,wp)
+
+        return
+
+    end subroutine calc_dni_60min
 
     subroutine calc_dni_disc(dni,hour,lat,lon,time_zone,ghi,pres,tisr,print_diagnostics)
         ! Direct Insolation Simulation Code (DISC) model
@@ -51,6 +95,7 @@ contains
 
         ! Local variables 
         real(wp) :: hour_of_year
+        real(wp) :: hour_of_day
         integer  :: day_of_year
         real(wp) :: latitude
         real(wp) :: longitude
@@ -70,8 +115,13 @@ contains
         real(wp), parameter :: S0 = 1370.0_wp 
         real(wp), parameter :: standard_pressure = 101325_wp  
 
+        ! Limit kt to a reasonable value, usually between 0 and 1 (see comments below).
+        real(wp), parameter :: kt_max = 1.0_wp 
+
+
         ! Assign input arguments to local variables 
         hour_of_year = hour
+        hour_of_day  = mod(hour_of_year,24.0_wp)        ! Just for diagnostic output
         day_of_year  = int((hour_of_year - 1) / 24) + 1
         latitude     = lat
         longitude    = lon
@@ -113,13 +163,14 @@ contains
         m_air = m_air_sl * (pressure / standard_pressure)
 
 
-        ! Normal insolation at the top of the atmosphere
-        ! following Spencer 1971, ref Maxwell 1987)
+        ! Insolation at the top of the atmosphere
+        ! following Spencer (1971), ref Maxwell (1987)
         I0 = S0 * (1.00011 + 0.034221 * cos(day_angle) + 0.00128 * sin(day_angle) + &
               0.000719 * cos(2.0 * day_angle) + 0.000077 * sin(2.0 * day_angle))
 
+
         if (tisr .ge. 0.0_wp) then 
-            ! Use horizontal incident irrandiance from input 
+            ! Use TOA horizontal incident irrandiance from input 
 
             I0_horizontal = tisr 
 
@@ -132,18 +183,20 @@ contains
         
         ! Calculate clearness index kt:
         ! Global horizontal irradiance over horizontal insolation TOA 
-        if (m_air > 0) then 
-            kt = ghi / I0_horizontal
-        else
-            kt = 0.0
-        end if
-        
-        ! ! Limit kt to 1.0 !!!
-        ! if (kt .gt. 1.0) then 
+        ! if (m_air > 0) then 
+        !     kt = ghi / I0_horizontal
+        ! else
+        !     kt = 0.0
+        ! end if
+        kt = ghi / I0_horizontal
 
-        !     kt = 1.0 
-
-        ! end if 
+        ! Limit kt to a reasonable value. As the zenith_angle
+        ! approaches 90 degrees (ie, at sunrise), then 
+        ! I0_horizontal gets reduced and the result can
+        ! be  kt >> 1. In this case, the factor del_kn below
+        ! can give an infinity value. Thus, it is better to
+        ! limit kt to a reasonable range like 0 to 1.
+        kt = min(kt,kt_max)
 
 
 if (.FALSE.) then
@@ -153,6 +206,7 @@ if (.FALSE.) then
             write(*,*)
             
             write(*,*) "hour_of_year     = ", hour_of_year 
+            write(*,*) "hour_of_day      = ", hour_of_day 
             write(*,*) "lat              = ", lat 
             write(*,*) "lon              = ", lon 
             write(*,*) "time_zone        = ", time_zone 
@@ -232,12 +286,13 @@ end if
 
         end if 
 
-        if (print_diagnostics) then 
+        if (print_diagnostics) then
             
             write(*,*) "=== calc_dni_disc ==="
             write(*,*)
             
             write(*,*) "hour_of_year     = ", hour_of_year 
+            write(*,*) "hour_of_day      = ", hour_of_day 
             write(*,*) "lat              = ", lat 
             write(*,*) "lon              = ", lon 
             write(*,*) "time_zone        = ", time_zone 
@@ -266,7 +321,76 @@ end if
 
     end subroutine calc_dni_disc
 
+    subroutine calc_dni_boland2013(dni,ghi)
+        ! Logistic model for DNI calculation
+        ! Boland et al. (2013, Renewable and Sustainable Energy Reviews)
+        ! https://www.sciencedirect.com/science/article/pii/S1364032113005637
 
+        implicit none
+
+        real(wp), intent(OUT) :: dni 
+        real(wp), intent(IN)  :: ghi 
+
+        ! Local variables 
+        real(wp) :: p 
+        real(wp) :: day_angle 
+        real(wp) :: cos_zenith_angle
+        real(wp) :: I0 
+        real(wp) :: I0_horizontal
+        real(wp) :: kt 
+
+        real(wp), parameter :: S0 = 1370.0_wp 
+
+        real(wp), parameter :: N = 0.006
+        real(wp), parameter :: M = 4.38 
+
+        real(wp), parameter :: b1 = 7.75
+        real(wp), parameter :: b2 = 1.185
+        real(wp), parameter :: b3 = 1.05
+        real(wp), parameter :: b4 = 0.004
+        real(wp), parameter :: b5 = -0.003
+
+
+
+        ! Insolation at the top of the atmosphere
+        ! following Spencer (1971), ref Maxwell (1987)
+        I0 = S0 * (1.00011 + 0.034221 * cos(day_angle) + 0.00128 * sin(day_angle) + &
+              0.000719 * cos(2.0 * day_angle) + 0.000077 * sin(2.0 * day_angle))
+
+        ! Global horizontal irradiance at TOA
+        I0_horizontal = (cos_zenith_angle * I0)
+
+        ! Calculate clearness index kt:
+        ! Global horizontal irradiance over horizontal insolation TOA 
+        kt = ghi / I0_horizontal
+
+
+        !p = -b1*kt - b2*ast - b3*alpha - b4*kt_day + b5*psi 
+
+        dni = (N*M) / (N+(M-N)*exp(p))
+
+        return
+
+    end subroutine calc_dni_boland2013
+
+    subroutine calc_clearness_index()
+
+        implicit none
+
+
+        return
+
+    end subroutine calc_clearness_index
+
+    subroutine calc_clearness_index_day()
+
+        implicit none
+
+
+        return
+
+    end subroutine calc_clearness_index_day
+    
     subroutine calc_zenith_angle(zenith_angle,hour,lat,lon,time_zone,print_diagnostics)
 
         implicit none 
@@ -301,13 +425,11 @@ end if
         longitude    = lon
         day_angle    = (2.0*pi) * (day_of_year - 1) / 365.0_wp
 
+        call calc_hour_angle(hour_angle,hour_of_year,longitude,time_zone)
+
         dec = (0.006918 - 0.399912 * cos(day_angle) + 0.070257 * sin(day_angle) -   &
               0.006758 * cos(2 * day_angle) + 0.000907 * sin(2 * day_angle) -       &
               0.002697 * cos(3 * day_angle) + 0.00148 * sin(3 * day_angle)) * (180.0 / 3.14159)
-        eqt = (0.000075 + 0.001868 * cos(day_angle) - 0.032077 * sin(day_angle) -   &
-              0.014615 * cos(2 * day_angle) - 0.040849 * sin(2 * day_angle)) * (229.18)
-        
-        hour_angle = 15.0 * (hour_of_year - 12.0 - 0.5 + eqt / 60.0 + ((longitude - time_zone * 15.0) * 4.0) / 60.0)
         
         ! Calculate cosine of zenith angle 
         cos_zenith_angle =  cos(dec*degrees_to_radians)  * &
@@ -320,6 +442,7 @@ end if
         zenith_angle = acos(cos_zenith_angle) * radians_to_degrees
 
         if (print_diagnostics) then
+
             write(*,*) "== calc_zenith_angle =="
             write(*,*)
             write(*,*) "hour_of_year     = ", hour_of_year 
@@ -340,5 +463,33 @@ end if
         return 
 
     end subroutine calc_zenith_angle
+
+    subroutine calc_hour_angle(hour_angle,hour_of_year,longitude,time_zone)
+
+        implicit none 
+
+        real(wp), intent(OUT) :: hour_angle 
+        real(wp), intent(IN)  :: hour_of_year
+        real(wp), intent(IN)  :: longitude
+        real(wp), intent(IN)  :: time_zone      ! Relative to UTC (0 == UTC)
+
+        ! Local variables 
+        integer  :: day_of_year
+        real(wp) :: day_angle
+
+        real(wp) :: eqt 
+
+        ! Assign input arguments to local variables 
+        day_of_year  = int((hour_of_year - 1) / 24) + 1
+        day_angle    = (2.0*pi) * (day_of_year - 1) / 365.0_wp
+
+        eqt = (0.000075 + 0.001868 * cos(day_angle) - 0.032077 * sin(day_angle) -   &
+              0.014615 * cos(2 * day_angle) - 0.040849 * sin(2 * day_angle)) * (229.18)
+        
+        hour_angle = 15.0 * (hour_of_year - 12.0 - 0.5 + eqt / 60.0 + ((longitude - time_zone * 15.0) * 4.0) / 60.0)
+        
+        return 
+
+    end subroutine calc_hour_angle
 
 end module irradiance
