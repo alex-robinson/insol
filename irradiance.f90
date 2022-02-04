@@ -115,6 +115,8 @@ contains
         real(wp) :: a, b, c 
         real(wp) :: kt2, kt3  
 
+        real(wp) :: dhi 
+
         real(wp), parameter :: standard_pressure = 101325_wp  
 
         ! Limit kt to a reasonable value, usually between 0 and 1 (see comments below).
@@ -122,12 +124,12 @@ contains
 
 
         ! Assign input arguments to local variables 
-        hour_of_year = hour
-        hour_of_day  = mod(hour_of_year,24.0_wp)        ! Just for diagnostic output
-        day_of_year  = int((hour_of_year - 1) / 24) + 1
+        hour_of_year = hour                         ! Note: first hour of year at 00:00:00 UTC == 0
+        hour_of_day  = mod(hour_of_year,24.0_wp)    ! Just for diagnostic output
+        day_of_year  = floor(hour_of_year/24) + 1
         latitude     = lat
         longitude    = lon
-        day_angle    = (2.0*pi) * (day_of_year - 1) / 365.0_wp
+        day_angle    = (2.0*pi) * (day_of_year-1) / 365.0_wp
 
         if (pres .gt. 0.0_wp) then 
             ! Use pressure provided as an argument 
@@ -204,6 +206,13 @@ else
 
 end if
         
+
+
+select case("disc")
+
+
+case("disc")
+
         ! Calculate powers of kt 
         kt2 = kt*kt 
         kt3 = kt2*kt 
@@ -253,6 +262,26 @@ end if
 
         end if 
 
+case("brl")
+
+    ! AJR: This doesn't seem to work yet!!!!
+    ! It seems that dividing by cos(zenith_angle) may 
+    ! give problems. Needs further investigation. 
+
+        write(*,*) "calc_dni:: BRL method not ready yet!" 
+        stop 
+
+
+
+        ! Calculate diffuse horizontal irradiance (dhi)
+        call calc_dhi_brl(dhi,kt,ghi)
+
+        ! Calculate dni from other components 
+        call calc_dni_from_diffuse(dni,ghi,dhi,zenith_angle)
+
+end select
+
+    
         ! Further corrections
         if (ghi .lt. 0.0 .or. dni .lt. 0.0) then 
 
@@ -333,6 +362,49 @@ end if
 
     end subroutine calc_dni_boland2013
 
+    subroutine calc_dni_from_diffuse(dni,ghi,dhi,zenith_angle)
+
+        implicit none
+
+        real(wp), intent(OUT) :: dni 
+        real(wp), intent(IN)  :: ghi
+        real(wp), intent(IN)  :: dhi 
+        real(wp), intent(IN)  :: zenith_angle
+
+        ! Boland et al (2013), Eq. 7 
+        dni = (ghi - dhi) / cos(zenith_angle*pi/180.0_wp)
+
+        return
+
+    end subroutine calc_dni_from_diffuse
+
+    subroutine calc_dhi_brl(dhi,kt,ghi)
+        ! Logistic model for DHI calculation
+        ! Ridley et al. (2010, Renewable Energy)
+        ! https://www.sciencedirect.com/science/article/pii/S0960148109003012
+
+        implicit none
+
+        real(wp), intent(OUT) :: dhi 
+        real(wp), intent(IN)  :: kt 
+        real(wp), intent(IN)  :: ghi
+
+        ! Local variables 
+        real(wp) :: p 
+        real(wp) :: diffuse_frac 
+
+        ! Simple logistic function that depends only on kt 
+        ! Ridley et al (2010), Eq. 3
+
+        p   = -5.0033 + 8.6025*kt 
+        diffuse_frac = 1.0_wp / (1.0_wp + exp(p))
+
+        dhi = diffuse_frac*ghi
+
+        return
+
+    end subroutine calc_dhi_brl
+
     subroutine calc_clearness_index(kt,hour_of_year,zenith_angle,ghi,kt_max)
 
         implicit none
@@ -351,8 +423,8 @@ end if
         real(wp) :: I0_horizontal
 
         ! Calculate some information
-        day_of_year  = int((hour_of_year - 1) / 24) + 1
-        day_angle    = (2.0*pi) * (day_of_year - 1) / 365.0_wp
+        day_of_year  = floor(hour_of_year/ 24) + 1
+        day_angle    = (2.0*pi) * (day_of_year-1) / 365.0_wp
 
         ! Calculate insolation at the top of the atmosphere
         ! following Spencer (1971), ref Maxwell (1987)
@@ -406,16 +478,14 @@ end if
         real(wp) :: eqt 
         real(wp) :: hour_angle 
         real(wp) :: cos_zenith_angle 
-
-        real(wp), parameter :: S0 = 1370.0_wp 
-
+        
         ! Assign input arguments to local variables 
-        hour_of_year = hour
-        hour_of_day = mod(hour_of_year,24.0_wp)
-        day_of_year  = int((hour_of_year - 1) / 24) + 1
+        hour_of_year = hour                         ! Note: first hour of year at 00:00:00 UTC == 0
+        hour_of_day  = mod(hour_of_year,24.0_wp)    ! Just for diagnostic output
+        day_of_year  = floor(hour_of_year/24) + 1
         latitude     = lat
         longitude    = lon
-        day_angle    = (2.0*pi) * (day_of_year - 1) / 365.0_wp
+        day_angle    = (2.0*pi) * (day_of_year-1) / 365.0_wp
 
         call calc_hour_angle(hour_angle,hour_of_year,longitude,time_zone)
 
@@ -472,8 +542,8 @@ end if
         real(wp) :: eqt 
 
         ! Assign input arguments to local variables 
-        day_of_year  = int((hour_of_year - 1) / 24) + 1
-        day_angle    = (2.0*pi) * (day_of_year - 1) / 365.0_wp
+        day_of_year  = floor(hour_of_year/24) + 1
+        day_angle    = (2.0*pi) * (day_of_year-1) / 365.0_wp
 
         eqt = (0.000075 + 0.001868 * cos(day_angle) - 0.032077 * sin(day_angle) -   &
               0.014615 * cos(2 * day_angle) - 0.040849 * sin(2 * day_angle)) * (229.18)

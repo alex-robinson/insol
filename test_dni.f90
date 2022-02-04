@@ -37,9 +37,9 @@ program test_dni
     case("nrel") 
 
         ! Run a calculation of NREL station data for a given set of years
-        !station = "667526"
+        station = "667526"
         !station = "677404"
-        station = "848945"
+        !station = "848945"
         year0 = 1998
         year1 = 2020 
 
@@ -292,7 +292,12 @@ contains
         call nc_read(filename_in,"fdir",fdir)       ! Surface direct horizontal irradiance == [DNI*cos(zenith_angle)]
         call nc_read(filename_in,"sp",pres)         ! Surface pressure [Pa]
 
-        hour = time - minval(time) + 1.0            ! First hour == 1.0
+        ! Define the hour_of_year, by subtracting minimum value loaded 
+        ! from NetCDF file. 
+        ! Note: the first hour of the year should be 00:00:00 UTC.
+        ! Therefore, hour of the year (hour) should start with hour=0
+        hour = time - minval(time)                  ! First hour == 0.0
+
         tisr = tisr / 3600.0_wp                     ! [J/m2] => [W/m2]
         ghi  = ghi  / 3600.0_wp                     ! [J/m2] => [W/m2]
         fdir = fdir / 3600.0_wp                     ! [J/m2] => [W/m2] 
