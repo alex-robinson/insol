@@ -29,13 +29,15 @@ module irradiance
 
     private 
     public :: sp, dp, wp, MISSING_VALUE, MV, pi, degrees_to_radians, radians_to_degrees
+    public :: calc_dni_from_fdir
+    public :: calc_dni_from_fdir_60min
     public :: calc_dni_60min
     public :: calc_dni_disc
     public :: calc_zenith_angle
 
 contains 
     
-    subroutine calc_dni_60min(dni,hour,lat,lon,time_zone,ghi,pres,tisr,print_diagnostics)
+    subroutine calc_dni_from_fdir(dni,hour,lat,lon,time_zone,fdir,print_diagnostics)
 
         implicit none
 
@@ -44,30 +46,243 @@ contains
         real(wp), intent(IN)  :: lat        ! [Degrees North]
         real(wp), intent(IN)  :: lon        ! [Degrees East]
         real(wp), intent(IN)  :: time_zone  ! [Hours difference to UTC]
-        real(wp), intent(IN)  :: ghi        ! [W/m2]
-        real(wp), intent(IN)  :: pres       ! [Pa]
-        real(wp), intent(IN)  :: tisr       ! [W/m2] TOA incident solar radiation (horizontal)
+        real(wp), intent(IN)  :: fdir       ! [W/m2]
         logical,  intent(IN)  :: print_diagnostics
 
         ! Local variables 
-        integer :: k, nmin
-        real(wp), allocatable :: hour_vals(:)
+        integer  :: k, nmin
+        real(wp) :: hour_val
+        real(wp) :: fdir_now
+        real(wp) :: zenith_angle_eff
+        real(wp) :: cosz 
+
+        ! Calculate effective zenith angle for this hour 
+        call calc_effective_zenith_angle(zenith_angle_eff,hour,lat,lon,time_zone)
+
+        ! Calculate DNI 
+        if (zenith_angle_eff .lt. 89.0_wp) then 
+
+            cosz = cos(zenith_angle_eff*pi/180.0_wp)
+            dni = fdir / cosz 
+
+        else
+
+            dni = 0.0_wp 
+
+        end if
+
+        return
+
+    end subroutine calc_dni_from_fdir
+
+    subroutine calc_dni_from_fdir_60min(dni,hour,lat,lon,time_zone,fdir,fdir_m1,print_diagnostics)
+
+        implicit none
+
+        real(wp), intent(OUT) :: dni        ! [W/m2]
+        real(wp), intent(IN)  :: hour       ! [Hour of the year]
+        real(wp), intent(IN)  :: lat        ! [Degrees North]
+        real(wp), intent(IN)  :: lon        ! [Degrees East]
+        real(wp), intent(IN)  :: time_zone  ! [Hours difference to UTC]
+        real(wp), intent(IN)  :: fdir       ! [W/m2]
+        real(wp), intent(IN)  :: fdir_m1    ! [W/m2]
+        logical,  intent(IN)  :: print_diagnostics
+
+        ! Local variables 
+        integer  :: k, nmin
+        real(wp) :: hour_val
+        real(wp) :: fdir_now
+        real(wp) :: zenith_angle_now
+        real(wp) :: cosz 
+
         real(wp), allocatable :: dni_vals(:)
 
 
         ! Do 60 minutes of calculations by default
         nmin = 60
 
-        allocate(hour_vals(nmin))
         allocate(dni_vals(nmin))
 
         dni_vals = 0.0_wp 
 
         do k = 1, nmin 
-            hour_vals(k) = hour + (-(nmin/2.0_wp) + real(k,wp)) /60_wp
-            call calc_dni_disc(dni_vals(k),hour_vals(k),lat,lon,time_zone,ghi,pres,tisr,print_diagnostics)
 
-            !write(*,*) "calc_dni_60min: ", hour_vals(k), dni_vals(k)
+if (.TRUE.) then 
+    ! This procedure seems more consistent with defintion of fdir in the file,
+    ! which is the cumulative fdir over the whole hour (which we then divide by sec_per_hr). 
+    ! So we can assume fdir is linearly changing over the past hour to calculate a more
+    ! accurate value of dni for each minute of the last hour. 
+    ! This approach doesn't work so well for NREL data using GHI data, which 
+    ! perhaps is not cumulative but direct measurements. 
+
+            ! Get the current hour value
+            hour_val = hour - real(nmin,wp)/60_wp + real(k,wp)/60_wp
+
+            ! Linear interpolation to get fdir now
+            fdir_now = fdir_m1 + (fdir-fdir_m1) * real(k,wp) / real(nmin,wp)
+
+else 
+            hour_val = hour + (-(nmin/2.0_wp) + real(k,wp)) /60_wp
+            fdir_now = fdir 
+end if 
+
+            ! Get the current zenith angle
+            call calc_zenith_angle(zenith_angle_now,hour_val, &
+                                lat,lon,time_zone,print_diagnostics)
+
+            if (zenith_angle_now .lt. 89.0_wp) then 
+
+                ! Get cos(zenith_angle)
+                cosz = cos(zenith_angle_now*pi/180.d0)
+
+                dni_vals(k) = fdir_now / cosz 
+
+            else 
+
+                dni_vals(k) = 0.0_wp 
+            
+            end if 
+
+            !write(*,*) "calc_dni_from_fdir_60min: ", hour_vals(k), dni_vals(k)
+
+        end do
+
+        ! Return the mean DNI value for this hour
+        dni = sum(dni_vals)/real(nmin,wp)
+
+        return
+
+    end subroutine calc_dni_from_fdir_60min
+
+    subroutine calc_effective_zenith_angle(zenith_angle_eff,hour,lat,lon,time_zone)
+        ! Calculate the effective zenith angle for a given hour 
+        ! following the algorithm A3 of: 
+        ! Blanc, P. and Wald, L.: On the effective solar zenith and 
+        ! azimuth angles to use with measurements of hourly 
+        ! irradiation, Adv. Sci. Res., 13, 1–6, 
+        ! https://doi.org/10.5194/asr-13-1-2016, 2016.
+
+        ! Get the average zenith angle of the previous hour, only
+        ! using values during daylight hours 
+
+        implicit none
+
+        real(wp), intent(OUT) :: zenith_angle_eff 
+        real(wp), intent(IN)  :: hour        ! Hour UTC of the day 
+        real(wp), intent(IN)  :: lat 
+        real(wp), intent(IN)  :: lon 
+        real(wp), intent(IN)  :: time_zone 
+
+        ! Local variables 
+        integer  :: k, nmin
+        real(wp) :: hour_now 
+        real(wp) :: wt_tot 
+
+        real(wp), allocatable :: za(:) 
+        real(wp), allocatable :: wt(:) 
+        
+        ! Do 60 minutes of calculations by default
+        nmin = 60
+
+        allocate(za(nmin))
+        allocate(wt(nmin))
+
+        za = 0.0_wp 
+        wt = 0.0_wp 
+
+        do k = 1, nmin 
+
+            ! Get the current hour value (from t-1 to t)
+            hour_now = hour - real(nmin,wp)/60_wp + real(k,wp)/60_wp
+
+            ! Calculate the zenith angle at this time 
+            call calc_zenith_angle(za(k),hour_now,lat,lon,time_zone,print_diagnostics=.FALSE.)
+
+            if (za(k) .lt. 89.0_wp) then 
+                ! Angle is less than 90deg, include this minute in the weighting
+                wt(k) = 1.0_wp 
+            end if 
+
+        end do 
+
+        ! Get total weight 
+        wt_tot = sum(wt) 
+
+
+        if (wt_tot .gt. 0.0_wp) then 
+            ! Some daylight minutes were found, calculate the 
+            ! effective zenith angle as the weighted mean 
+            ! over the hour. 
+
+            zenith_angle_eff = sum(wt*za) / wt_tot 
+
+        else 
+            ! Simply fill in angle with the hour value 
+            
+            call calc_zenith_angle(zenith_angle_eff,hour,lat,lon,time_zone,print_diagnostics=.FALSE.)
+        
+        end if 
+
+        return
+
+    end subroutine calc_effective_zenith_angle
+
+    subroutine calc_dni_60min(dni,hour,lat,lon,time_zone,ghi,ghi_m1,pres,tisr,print_diagnostics)
+
+        implicit none
+
+        real(wp), intent(OUT) :: dni        ! [W/m2]
+        real(wp), intent(IN)  :: hour       ! [Hour of the year]
+        real(wp), intent(IN)  :: lat        ! [Degrees North]
+        real(wp), intent(IN)  :: lon        ! [Degrees East]
+        real(wp), intent(IN)  :: time_zone  ! [Hours difference to UTC]
+        real(wp), intent(IN)  :: ghi        ! [W/m2] Current hour GHI
+        real(wp), intent(IN)  :: ghi_m1     ! [W/m2] Previous hour GHI
+        real(wp), intent(IN)  :: pres       ! [Pa]
+        real(wp), intent(IN)  :: tisr       ! [W/m2] TOA incident solar radiation (horizontal)
+        logical,  intent(IN)  :: print_diagnostics
+
+        ! Local variables 
+        integer  :: k, nmin
+        real(wp) :: hour_val
+        real(wp) :: ghi_now
+
+        real(wp), allocatable :: dni_vals(:)
+
+
+        ! Do 60 minutes of calculations by default
+        nmin = 60
+
+        allocate(dni_vals(nmin))
+
+        dni_vals = 0.0_wp 
+
+        do k = 1, nmin 
+            
+
+if (.FALSE.) then 
+    ! Assume ghi is for hour, and ghi_m1 is for hour-1
+    ! This method does worse for NREL station data! 
+
+            ! Get the current hour value
+            hour_val = hour - real(nmin,wp)/60_wp + real(k,wp)/60_wp
+
+            ! Linear interpolation to get fdir now
+            ghi_now = ghi_m1 + (ghi-ghi_m1) * real(k,wp) / real(nmin,wp)
+
+            call calc_dni_disc(dni_vals(k),hour_val,lat,lon,time_zone,ghi_now,pres,tisr,print_diagnostics)
+
+else 
+    ! Assume current ghi is valid for the middle of the hour 
+    ! This method is better for NREL station data, continuing with this method for now, 
+    ! as it also doesn't change the ERA5 results compared to the FDIR method 
+
+            hour_val = hour + (-(nmin/2.0_wp) + real(k,wp)) /60_wp
+            call calc_dni_disc(dni_vals(k),hour_val,lat,lon,time_zone,ghi,pres,tisr,print_diagnostics)
+
+end if 
+
+            !write(*,*) "calc_dni_60min: ", hour_val, dni_vals(k)
 
         end do
 
@@ -120,7 +335,8 @@ contains
         real(wp), parameter :: standard_pressure = 101325_wp  
 
         ! Limit kt to a reasonable value, usually between 0 and 1 (see comments below).
-        real(wp), parameter :: kt_max = 1.0_wp 
+        real(wp), parameter :: kt_max  = 1.0_wp 
+        real(wp), parameter :: ghi_tol = 1e-2 
 
 
         ! Assign input arguments to local variables 
@@ -196,6 +412,10 @@ if (.FALSE.) then
         ! can give an infinity value. Thus, it is better to
         ! limit kt to a reasonable range like 0 to 1.
         kt = min(kt,kt_max)
+
+        ! Also ensure that kt is zero for zero or negative ghi 
+        if (ghi .lt. ghi_tol) kt = 0.0 
+
 else
 
     ! Use subroutine to calculate clearness index
@@ -478,7 +698,7 @@ end select
         real(wp) :: eqt 
         real(wp) :: hour_angle 
         real(wp) :: cos_zenith_angle 
-        
+
         ! Assign input arguments to local variables 
         hour_of_year = hour                         ! Note: first hour of year at 00:00:00 UTC == 0
         hour_of_day  = mod(hour_of_year,24.0_wp)    ! Just for diagnostic output

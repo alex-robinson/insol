@@ -20,7 +20,7 @@ program test_dni
     character(len=56) :: run_case 
 
 
-    run_case = "nrel"   ! "point", "nrel", "era5" 
+    run_case = "era5"   ! "point", "nrel", "era5" 
 
 
     ! ====================================================================
@@ -37,9 +37,9 @@ program test_dni
     case("nrel") 
 
         ! Run a calculation of NREL station data for a given set of years
-        station = "667526"
+        !station = "667526"
         !station = "677404"
-        !station = "848945"
+        station = "848945"
         year0 = 1998
         year1 = 2020 
 
@@ -63,6 +63,23 @@ program test_dni
         call get_command_argument(1,loc_now)
         call get_command_argument(2,year_now)
 
+        ! No time zone needed for ERA5 data, all times are UTC and consistent
+        ! with a UTC time zone, it seems (ajr, 2022-02-09). This was checked by 
+        ! using the solar zenith angle calculator here:
+        ! https://midcdmz.nrel.gov/solpos/solpos.html
+        ! To get zenith angles < 90 in the time period when GHI coming 
+        ! out of the ERA5 data was > 0, a time_zone=0 needs to be specified. 
+        ! If the "right" time zone is specified, then the zenith_angle is 
+        ! offset by that amount and becomes inconsistent with the times at 
+        ! which GHI > 0. 
+        ! Note: it appears that the NREL station data does need to include
+        ! this time_zone offset, despite apparently having time in UTC. 
+if (.TRUE.) then 
+
+        time_zone = 0.0_wp 
+
+else 
+
         ! Define time zone depending on location 
         select case(trim(loc_now))
 
@@ -78,9 +95,12 @@ program test_dni
 
         end select
 
+end if 
+
         call calc_era5_dni(loc_now,year_now,time_zone)
 
     end select
+
 
 contains 
 
@@ -98,6 +118,9 @@ contains
         real(wp) :: ghi
         real(wp) :: dni
 
+        real(wp) :: ghi_now 
+        real(wp) :: ghi_m1 
+
         ! === Specify input variable values ===
         
         lon       = -75.0
@@ -107,6 +130,9 @@ contains
         ghi       = 100.0
         pres      = 840.0 * 100.0  ! [mb] => [Pa]
 
+        ghi_now   = ghi
+        ghi_m1    = ghi
+
         ! === Calculate Zenith Angle and DNI ===
         ! (with print_diagnostics=.TRUE., zenith_angle and dni calculation info will be printed to screen)
 
@@ -114,7 +140,7 @@ contains
         !call calc_dni_disc(dni,hour,lat,lon,time_zone,ghi,pres,-1.0_wp,print_diagnostics=.TRUE.)
         
         ! Interpolate time over one hour
-        call calc_dni_60min(dni,hour,lat,lon,time_zone,ghi,pres,-1.0_wp,print_diagnostics=.TRUE.)
+        call calc_dni_60min(dni,hour,lat,lon,time_zone,ghi_now,ghi_m1,pres,-1.0_wp,print_diagnostics=.TRUE.)
 
         stop " === Done. === "
 
@@ -145,6 +171,8 @@ contains
         real(wp) :: ghi
         real(wp) :: dhi 
         real(wp) :: dni
+        real(wp) :: ghi_now 
+        real(wp) :: ghi_m1 
         real(wp) :: zenith_angle_pred
         real(wp) :: dni_pred 
 
@@ -208,12 +236,21 @@ contains
                 exit
             end if 
 
+            ! Store ghi 
+            if (n .eq. 1) then 
+                ghi_m1 = ghi
+            else 
+                ghi_m1 = ghi_now 
+            end if 
+
+            ghi_now = ghi
+
             ! Perform calculations
             call calc_zenith_angle(zenith_angle_pred,hour,lat,lon,time_zone,print_diagnostics=.FALSE.) 
             !call calc_dni_disc(dni_pred,hour,lat,lon,time_zone,ghi,pres,-1.0_wp,print_diagnostics=.FALSE.)
             
             ! Interpolate time over one hour
-            call calc_dni_60min(dni_pred,hour,lat,lon,time_zone,ghi,pres,-1.0_wp,print_diagnostics=.FALSE.)
+            call calc_dni_60min(dni_pred,hour,lat,lon,time_zone,ghi_now,ghi,pres,-1.0_wp,print_diagnostics=.FALSE.)
 
             if (print_diagnostics) then
                 ! Print summary 
@@ -244,7 +281,12 @@ contains
         character(len=512) :: filename_in 
         character(len=512) :: filename_out  
 
-        integer  :: i, j, k, nx, ny, nt 
+        integer  :: i, j, k, nx, ny, nt
+        real(wp) :: fdir_now
+        real(wp) :: fdir_m1
+        real(wp) :: ghi_now
+        real(wp) :: ghi_m1
+        
         real(wp), allocatable :: lon(:) 
         real(wp), allocatable :: lat(:) 
         real(wp), allocatable :: time(:)
@@ -256,7 +298,11 @@ contains
         real(wp), allocatable :: zenith_angle(:,:,:) 
         real(wp), allocatable :: dni(:,:,:) 
 
-        
+        real(wp), allocatable :: dni_mod(:,:,:) 
+        real(wp), allocatable :: fdir_mod(:,:,:) 
+
+        real(wp), parameter :: radiation_tol = 1e-2 
+
         ! === Define filenames === 
 
         !filename_in  = "data/era5/southspain/era5_southspain_2019.nc" 
@@ -282,6 +328,9 @@ contains
         allocate(zenith_angle(nx,ny,nt)) 
         allocate(dni(nx,ny,nt))
 
+        allocate(dni_mod(nx,ny,nt))
+        allocate(fdir_mod(nx,ny,nt))
+
         ! === Read in dataset === 
 
         call nc_read(filename_in,"longitude",lon)
@@ -302,6 +351,12 @@ contains
         ghi  = ghi  / 3600.0_wp                     ! [J/m2] => [W/m2]
         fdir = fdir / 3600.0_wp                     ! [J/m2] => [W/m2] 
 
+        where(ghi  .lt. radiation_tol) ghi  = 0.0_wp 
+        where(tisr .lt. radiation_tol) tisr = 0.0_wp 
+        where(fdir .lt. radiation_tol) fdir = 0.0_wp 
+
+        ! ajr: testing!!!
+
         write(*,*) "range(lon):  ", minval(lon),  maxval(lon)
         write(*,*) "range(lat):  ", minval(lat),  maxval(lat)
         write(*,*) "range(time): ", minval(time), maxval(time)
@@ -315,6 +370,8 @@ contains
 
         zenith_angle = 0.0_wp 
         dni          = 0.0_wp 
+        dni_mod      = 0.0_wp 
+        fdir_mod     = 0.0_wp 
 
         do i = 1, nx 
         do j = 1, ny 
@@ -323,8 +380,35 @@ contains
                 call calc_zenith_angle(zenith_angle(i,j,k),hour(k),lat(j),lon(i),time_zone,print_diagnostics=.FALSE.) 
                 !call calc_dni_disc(dni(i,j,k),hour(k),lat(j),lon(i),time_zone,ghi(i,j,k),pres(i,j,k),-1.0_wp,print_diagnostics=.FALSE.)
                 
-                ! Interpolate time over one hour
-                call calc_dni_60min(dni(i,j,k),hour(k),lat(j),lon(i),time_zone,ghi(i,j,k),pres(i,j,k),-1.0_wp,print_diagnostics=.FALSE.)
+                ! Get current and previous values of ghi and fdir 
+
+                ghi_now = ghi(i,j,k) 
+                if (k .eq. 1) then 
+                    ghi_m1 = ghi(i,j,k)
+                else 
+                    ghi_m1 = ghi(i,j,k-1)
+                end if 
+
+                fdir_now = fdir(i,j,k) 
+                if (k .eq. 1) then 
+                    fdir_m1 = fdir(i,j,k)
+                else 
+                    fdir_m1 = fdir(i,j,k-1)
+                end if 
+
+                ! Calculate DNI directly from FDIR and the effective zenith angle
+                call calc_dni_from_fdir(dni(i,j,k),hour(k),lat(j),lon(i),time_zone,fdir_now,print_diagnostics=.FALSE.)
+                
+                ! Calculate DNI directly from FDIR and the zenith angle over 60min
+                !call calc_dni_from_fdir_60min(dni(i,j,k),hour(k),lat(j),lon(i),time_zone,fdir_now,fdir_m1,print_diagnostics=.FALSE.)
+                
+                ! Calculate DNI from DISC model interpolated over 60min
+                call calc_dni_60min(dni_mod(i,j,k),hour(k),lat(j),lon(i),time_zone,ghi_now,ghi_m1,pres(i,j,k),-1.0_wp,print_diagnostics=.FALSE.)
+
+                if (zenith_angle(i,j,k) .lt. 89.0) then 
+                    ! Calculate fdir=dni*cos(z) too, for comparison with ERA5 FDIR variable
+                    fdir_mod(i,j,k) = dni_mod(i,j,k)*cos(zenith_angle(i,j,k)*pi/180.0_wp)
+                end if 
 
             end do
 
@@ -346,6 +430,9 @@ contains
         call nc_write(filename_out,"sp",            pres,           dim1="longitude",dim2="latitude",dim3="time")
         call nc_write(filename_out,"dni",           dni,            dim1="longitude",dim2="latitude",dim3="time")
 
+        call nc_write(filename_out,"dni_mod",       dni_mod,        dim1="longitude",dim2="latitude",dim3="time")
+        call nc_write(filename_out,"fdir_mod",      fdir_mod,       dim1="longitude",dim2="latitude",dim3="time")
+        
         return
 
     end subroutine calc_era5_dni
