@@ -41,113 +41,24 @@ module insolation
 
     interface calc_insol_day
         module procedure calc_insol_day_pt  
-        module procedure calc_insol_day_1D, calc_insol_day_2D 
+        module procedure calc_insol_day_1D
+        module procedure calc_insol_day_2D 
     end interface 
+
+    interface calc_insol_days
+        module procedure calc_insol_days_pt
+        module procedure calc_insol_days_1D
+    end interface
 
     private
     public :: calc_insol_day 
+    public :: calc_insol_days
 
 contains 
 
-    function calc_insol_day_2D(day,lats,time_bp,S0,day_year,fldr) result(insol2D)
-        ! Wrapper function to calculate 2D array of insolation values
-        ! for a given day, given a 2D array of latitude values
-        ! time_bp = years before present (present==1950)
-
-        implicit none 
-
-        integer   :: day
-        real (dp) :: lats(:,:) 
-        real (dp) :: time_bp
-        real (dp) :: insol2D(size(lats,1),size(lats,2))
-        real (dp), allocatable :: lats1D(:), insol1D(:)
-        integer   :: n 
-
-        real (dp), optional :: S0
-        integer,   optional :: day_year
-        character(len=*), optional :: fldr 
-
-        n = size(lats,1)*size(lats,2)
-        allocate(lats1D(n),insol1D(n))
-
-        lats1D = reshape(lats,[n])
-        insol1D = calc_insol_day_1D(day,lats1D,time_bp,S0,day_year,fldr)
-        insol2D = reshape(insol1D,[size(lats,1),size(lats,2)])
-
-        return 
-
-    end function calc_insol_day_2D
-
-    function calc_insol_day_1D(day,lats,time_bp,S0,day_year,fldr) result(insol)
-        ! Given day of year, latitudes and time before present,
-        ! Calculate the daily insolation values at each latitude 
-        ! time_bp = years before present (present==1950)
-
-        implicit none 
-
-        integer   :: day
-        real (dp) :: lats(:) 
-        real (dp) :: time_bp
-        real (dp) :: insol(size(lats))
-
-        integer, parameter :: nh = 24 
-
-        real (dp) :: PER, ECC, XOBCH, TPERI, ZAVEXPE
-        real (dp) :: PRAE, PCLOCK, PYTIME 
-        real (dp) :: PDISSE(nh), PZEN1(nh), PZEN2(nh), PZEN3(nh)
-
-        integer :: j, h 
-
-        real (dp), optional :: S0
-        real (dp)           :: S0_value 
-
-        integer, optional   :: day_year
-        integer             :: day_max 
-
-        character(len=*), optional :: fldr 
-
-        ! Define the solar constant
-        S0_value = 1365.0_dp
-        if (present(S0)) S0_value = S0  
-
-        ! Define year length in days 
-        day_max = 360
-        if (present(day_year)) day_max = day_year
-
-        ! Calculate orbital parameters for current year 
-        call calc_orbital_par(time_bp,PER,ECC,XOBCH,TPERI,ZAVEXPE,fldr)
-
-        ! Get hourly zenith angle values for input into daily insol function
-        PYTIME = dble(day)/dble(day_max)*2.0_dp*pi
-        do h = 1, nh
-            PCLOCK = dble(h)/dble(nh)*2.0_dp*pi
-            call ORBIT(ECC,XOBCH,TPERI,ZAVEXPE, &
-                       PCLOCK,PYTIME,PDISSE(h),PZEN1(h),PZEN2(h),PZEN3(h),PRAE)
-        end do 
-
-        ! ================================================
-        ! Using spline interpolation 
-        ! ================================================
-        ! Calculate daily insolation at predefined latitude values,
-        ! then interpolate via spline to get insolation at desired latitudes
-        do j = 1, OPAR%n_lat
-            OPAR%solarm(j) = calc_insol_day_internal(OPAR%lats(j),PDISSE,PZEN1,PZEN2,S0_value)
-        end do 
-        insol = interp_spline(OPAR%lats,OPAR%solarm,lats)
-        where (insol .lt. 0.0_dp) insol = 0.0_dp 
-
-        ! ================================================
-        ! Direct calculation at each latitude (no spline)
-        ! ================================================
-!         ! Calculate daily insolation at each latitude
-!         do j = 1, size(lats)
-!             insol(j) = calc_insol_day_internal(lats(j),PDISSE,PZEN1,PZEN2,S0_value)
-!         end do 
-         
-        return 
-
-    end function calc_insol_day_1D
-
+! =====================================================================================================
+! Interface functions for routines for a single day
+    
     function calc_insol_day_pt(day,lat,time_bp,S0,day_year,fldr) result(insol)
         ! Given day of year, latitudes and time before present,
         ! Calculate the daily insolation values at each latitude 
@@ -201,6 +112,252 @@ contains
         return 
 
     end function calc_insol_day_pt
+    
+    function calc_insol_day_1D(day,lats,time_bp,S0,day_year,fldr) result(insol)
+        ! Given day of year, latitudes and time before present,
+        ! Calculate the daily insolation values at each latitude 
+        ! time_bp = years before present (present==1950)
+
+        implicit none 
+
+        integer   :: day
+        real (dp) :: lats(:) 
+        real (dp) :: time_bp
+        real (dp) :: insol(size(lats))
+
+        integer, parameter :: nh = 24 
+
+        real (dp) :: PER, ECC, XOBCH, TPERI, ZAVEXPE
+        real (dp) :: PRAE, PCLOCK, PYTIME 
+        real (dp) :: PDISSE(nh), PZEN1(nh), PZEN2(nh), PZEN3(nh)
+
+        integer :: j, h 
+
+        real (dp), optional :: S0
+        real (dp)           :: S0_value 
+
+        integer, optional   :: day_year
+        integer             :: day_max 
+
+        character(len=*), optional :: fldr 
+
+        ! Define the solar constant
+        S0_value = 1365.0_dp
+        if (present(S0)) S0_value = S0  
+
+        ! Define year length in days 
+        day_max = 360
+        if (present(day_year)) day_max = day_year
+
+        ! Calculate orbital parameters for current year 
+        call calc_orbital_par(time_bp,PER,ECC,XOBCH,TPERI,ZAVEXPE,fldr)
+
+        ! Get hourly zenith angle values for input into daily insol function
+        PYTIME = dble(day)/dble(day_max)*2.0_dp*pi
+        do h = 1, nh
+            PCLOCK = dble(h)/dble(nh)*2.0_dp*pi
+            call ORBIT(ECC,XOBCH,TPERI,ZAVEXPE, &
+                       PCLOCK,PYTIME,PDISSE(h),PZEN1(h),PZEN2(h),PZEN3(h),PRAE)
+        end do 
+
+if (.TRUE.) then 
+        ! ================================================
+        ! Using spline interpolation 
+        ! ================================================
+        ! Calculate daily insolation at predefined latitude values,
+        ! then interpolate via spline to get insolation at desired latitudes
+        do j = 1, OPAR%n_lat
+            OPAR%solarm(j) = calc_insol_day_internal(OPAR%lats(j),PDISSE,PZEN1,PZEN2,S0_value)
+        end do 
+        insol(:) = interp_spline(OPAR%lats,OPAR%solarm,lats)
+
+else
+        ! ================================================
+        ! Direct calculation at each latitude (no spline)
+        ! ================================================
+        ! Calculate daily insolation at each latitude
+        do j = 1, size(lats)
+            insol(j) = calc_insol_day_internal(lats(j),PDISSE,PZEN1,PZEN2,S0_value)
+        end do
+
+end if 
+
+        where (insol .lt. 0.0_dp) insol = 0.0_dp 
+        
+        return 
+
+    end function calc_insol_day_1D
+
+    function calc_insol_day_2D(day,lats,time_bp,S0,day_year,fldr) result(insol2D)
+        ! Wrapper function to calculate 2D array of insolation values
+        ! for a given day, given a 2D array of latitude values
+        ! time_bp = years before present (present==1950)
+
+        implicit none 
+
+        integer   :: day
+        real (dp) :: lats(:,:) 
+        real (dp) :: time_bp
+        real (dp) :: insol2D(size(lats,1),size(lats,2))
+        real (dp), allocatable :: lats1D(:), insol1D(:)
+        integer   :: n 
+
+        real (dp), optional :: S0
+        integer,   optional :: day_year
+        character(len=*), optional :: fldr 
+
+        n = size(lats,1)*size(lats,2)
+        allocate(lats1D(n),insol1D(n))
+
+        lats1D = reshape(lats,[n])
+        insol1D = calc_insol_day_1D(day,lats1D,time_bp,S0,day_year,fldr)
+        insol2D = reshape(insol1D,[size(lats,1),size(lats,2)])
+
+        return 
+
+    end function calc_insol_day_2D
+
+! =====================================================================================================
+! Interface functions for routines with a vector of days
+
+    function calc_insol_days_pt(days,lat,time_bp,S0,day_year,fldr) result(insol)
+        ! Given day of year, latitudes and time before present,
+        ! Calculate the daily insolation values at each latitude 
+        ! time_bp = years before present (present==1950)
+
+        implicit none 
+
+        integer   :: days(:)
+        real (dp) :: lat
+        real (dp) :: time_bp
+        real (dp) :: insol(size(days))
+
+        integer, parameter :: nh = 24 
+
+        real (dp) :: PER, ECC, XOBCH, TPERI, ZAVEXPE
+        real (dp) :: PRAE, PCLOCK, PYTIME 
+        real (dp) :: PDISSE(nh), PZEN1(nh), PZEN2(nh), PZEN3(nh)
+
+        integer  :: j, h, q
+
+        real (dp), optional :: S0
+        real (dp)           :: S0_value 
+
+        integer, optional   :: day_year
+        integer             :: day_max 
+
+        character(len=*), optional :: fldr 
+
+        ! Define the solar constant
+        S0_value = 1365.0_dp
+        if (present(S0)) S0_value = S0  
+
+        ! Define year length in days 
+        day_max = 360
+        if (present(day_year)) day_max = day_year
+
+        ! Calculate orbital parameters for current year 
+        call calc_orbital_par(time_bp,PER,ECC,XOBCH,TPERI,ZAVEXPE,fldr)
+
+        do q = 1, size(days,1)
+
+            ! Get hourly zenith angle values for input into daily insol function
+            PYTIME = dble(days(q))/dble(day_max)*2.0_dp*pi
+            do h = 1, nh
+                PCLOCK = dble(h)/dble(nh)*2.0_dp*pi
+                call ORBIT(ECC,XOBCH,TPERI,ZAVEXPE, &
+                        PCLOCK,PYTIME,PDISSE(h),PZEN1(h),PZEN2(h),PZEN3(h),PRAE)
+            end do 
+
+            ! Calculate daily insolation at latitude of interest
+            insol(q) = calc_insol_day_internal(lat,PDISSE,PZEN1,PZEN2,S0_value)
+
+        end do 
+
+        return 
+
+    end function calc_insol_days_pt
+    
+    function calc_insol_days_1D(days,lats,time_bp,S0,day_year,fldr) result(insol)
+        ! Given day of year, latitudes and time before present,
+        ! Calculate the daily insolation values at each latitude 
+        ! time_bp = years before present (present==1950)
+
+        implicit none 
+
+        integer   :: days(:)
+        real (dp) :: lats(:) 
+        real (dp) :: time_bp
+        real (dp) :: insol(size(lats,1),size(days,1))
+
+        integer, parameter :: nh = 24 
+
+        real (dp) :: PER, ECC, XOBCH, TPERI, ZAVEXPE
+        real (dp) :: PRAE, PCLOCK, PYTIME 
+        real (dp) :: PDISSE(nh), PZEN1(nh), PZEN2(nh), PZEN3(nh)
+
+        integer :: j, h, q
+
+        real (dp), optional :: S0
+        real (dp)           :: S0_value 
+
+        integer, optional   :: day_year
+        integer             :: day_max 
+
+        character(len=*), optional :: fldr 
+
+        ! Define the solar constant
+        S0_value = 1365.0_dp
+        if (present(S0)) S0_value = S0  
+
+        ! Define year length in days 
+        day_max = 360
+        if (present(day_year)) day_max = day_year
+
+        ! Calculate orbital parameters for current year 
+        call calc_orbital_par(time_bp,PER,ECC,XOBCH,TPERI,ZAVEXPE,fldr)
+
+        do q = 1, size(days,1)
+
+            ! Get hourly zenith angle values for input into daily insol function
+            PYTIME = dble(days(q))/dble(day_max)*2.0_dp*pi
+            do h = 1, nh
+                PCLOCK = dble(h)/dble(nh)*2.0_dp*pi
+                call ORBIT(ECC,XOBCH,TPERI,ZAVEXPE, &
+                        PCLOCK,PYTIME,PDISSE(h),PZEN1(h),PZEN2(h),PZEN3(h),PRAE)
+            end do 
+
+if (.TRUE.) then 
+            ! ================================================
+            ! Using spline interpolation 
+            ! ================================================
+            ! Calculate daily insolation at predefined latitude values,
+            ! then interpolate via spline to get insolation at desired latitudes
+            do j = 1, OPAR%n_lat
+                OPAR%solarm(j) = calc_insol_day_internal(OPAR%lats(j),PDISSE,PZEN1,PZEN2,S0_value)
+            end do 
+            insol(:,q) = interp_spline(OPAR%lats,OPAR%solarm,lats)
+            
+else
+            ! ================================================
+            ! Direct calculation at each latitude (no spline)
+            ! ================================================
+
+            ! Calculate daily insolation at each latitude
+            do j = 1, size(lats)
+                insol(j,q) = calc_insol_day_internal(lats(j),PDISSE,PZEN1,PZEN2,S0_value)
+            end do 
+end if 
+
+        end do 
+
+        where (insol .lt. 0.0_dp) insol = 0.0_dp 
+
+        return 
+
+    end function calc_insol_days_1D
+
+! =====================================================================================================
 
     function calc_insol_day_internal(lat,PDISSE,PZEN1,PZEN2,S0) result(solarm)
         ! Given latitude and sun hourly angle,
