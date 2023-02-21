@@ -387,6 +387,28 @@ end if
 
 ! =====================================================================================================
 
+    function calc_insol_day_analytical_internal(day,time_bp,lat,S0) result(solarm)
+        ! Calculate the daily mean insolation value,
+        ! given day of year, time before present, latitude and solar constant,
+
+        implicit none 
+
+        real(dp), intent(IN) :: time_bp
+        real(dp), intent(IN) :: lat 
+        real(dp), intent(IN) :: S0
+        real (dp) :: solarm
+
+        ! Local variables
+        integer   :: day, h
+        
+        integer, parameter :: nh = 24
+        integer, parameter :: day_max = 360 
+
+        
+        return 
+
+    end function calc_insol_day_analytical_internal
+
     function calc_insol_day_internal(lat,PDISSE,PZEN1,PZEN2,S0) result(solarm)
         ! Given latitude and sun hourly angle,
         ! Calculate the daily insolation value 
@@ -397,7 +419,7 @@ end if
         integer   :: day, h, nh   
         real (dp), intent(IN) :: lat, S0  
         real (dp), intent(IN) :: PDISSE(:), PZEN1(:), PZEN2(:)
-        real (dp) :: latrad, coszm, cosp, cosn, S, solarh(size(PDISSE))
+        real (dp) :: latrad, coszm, cosp, cosn, S
         real (dp) :: solarm
 
         ! How many hours in the day?
