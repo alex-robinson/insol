@@ -52,10 +52,89 @@ module insolation
     end interface
 
     private
+    public :: calc_insol_ave_pt
     public :: calc_insol_day 
     public :: calc_insol_days
 
 contains 
+
+! =====================================================================================================
+! Interface functions for routines for annual mean insolation
+
+    function calc_insol_ave_pt(day_range,lat,time_bp,S0,day_year,fldr,step) result(insol)
+        ! Given a range of days of the year, latitude and time before present,
+        ! Calculate the average insolation at each latitude for the day_range
+        ! time_bp = years before present (present==1950)
+
+        implicit none 
+
+        integer,  intent(IN) :: day_range(2)
+        real(dp), intent(IN) :: lat
+        real(dp), intent(IN) :: time_bp
+        real(dp), intent(IN), optional :: S0
+        integer,  intent(IN), optional :: day_year
+        character(len=*), optional :: fldr 
+        integer,  intent(IN), optional :: step 
+        real(dp) :: insol
+        
+        ! Local variables
+        integer, parameter :: nh = 24 
+        integer :: j, h, day, ndays 
+        real(dp) :: PER, ECC, XOBCH, TPERI, ZAVEXPE
+        real(dp) :: PRAE, PCLOCK, PYTIME 
+        real(dp) :: PDISSE(nh), PZEN1(nh), PZEN2(nh), PZEN3(nh)
+        real(dp) :: S0_value 
+        integer  :: day_max 
+        integer  :: day_step 
+
+        
+        if (day_range(2) .le. day_range(1)) then 
+            write(*,*) "calc_insol_ave_pt:: Error: day_range must give a positive total of days to calculate."
+            write(*,*) "day_range: ", day_range 
+            stop 
+        end if 
+
+        ! Determine the step to use for the integration
+        day_step = 1
+        if (present(step)) day_step = step 
+
+        ! Define the solar constant
+        S0_value = 1365.0_dp
+        if (present(S0)) S0_value = S0  
+
+        ! Define year length in days 
+        day_max = 360
+        if (present(day_year)) day_max = day_year
+
+        ! Calculate orbital parameters for current year 
+        call calc_orbital_par(time_bp,PER,ECC,XOBCH,TPERI,ZAVEXPE,fldr)
+
+        insol = 0.0 
+        ndays = 0
+
+        do day = day_range(1), day_range(2), day_step
+
+            ! Get hourly zenith angle values for input into daily insol function
+            PYTIME = dble(day)/dble(day_max)*2.0_dp*pi
+            do h = 1, nh
+                PCLOCK = dble(h)/dble(nh)*2.0_dp*pi
+                call ORBIT(ECC,XOBCH,TPERI,ZAVEXPE, &
+                        PCLOCK,PYTIME,PDISSE(h),PZEN1(h),PZEN2(h),PZEN3(h),PRAE)
+            end do 
+
+            ! Calculate daily insolation at latitude of interest
+            insol = insol + calc_insol_day_internal(lat,PDISSE,PZEN1,PZEN2,S0_value)
+
+            ndays = ndays + 1 
+        end do 
+
+        ! Get the average 
+        insol = insol / real(ndays,dp)
+
+        return 
+
+    end function calc_insol_ave_pt
+
 
 ! =====================================================================================================
 ! Interface functions for routines for a single day
@@ -67,27 +146,23 @@ contains
 
         implicit none 
 
-        integer   :: day
-        real (dp) :: lat
-        real (dp) :: time_bp
-        real (dp) :: insol
-
-        integer, parameter :: nh = 24 
-
-        real (dp) :: PER, ECC, XOBCH, TPERI, ZAVEXPE
-        real (dp) :: PRAE, PCLOCK, PYTIME 
-        real (dp) :: PDISSE(nh), PZEN1(nh), PZEN2(nh), PZEN3(nh)
-
-        integer :: j, h 
-
-        real (dp), optional :: S0
-        real (dp)           :: S0_value 
-
-        integer, optional   :: day_year
-        integer             :: day_max 
-
+        integer,  intent(IN) :: day
+        real(dp), intent(IN) :: lat
+        real(dp), intent(IN) :: time_bp
+        real(dp), intent(IN), optional :: S0
+        integer,  intent(IN), optional :: day_year
         character(len=*), optional :: fldr 
-
+        real(dp) :: insol
+        
+        ! Local variables
+        integer :: j, h 
+        integer, parameter :: nh = 24 
+        real(dp) :: PER, ECC, XOBCH, TPERI, ZAVEXPE
+        real(dp) :: PRAE, PCLOCK, PYTIME 
+        real(dp) :: PDISSE(nh), PZEN1(nh), PZEN2(nh), PZEN3(nh)
+        real(dp) :: S0_value 
+        integer  :: day_max 
+        
         ! Define the solar constant
         S0_value = 1365.0_dp
         if (present(S0)) S0_value = S0  
